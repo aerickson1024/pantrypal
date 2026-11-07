@@ -1,0 +1,29 @@
+:root {
+	color-scheme: dark;
+	font-family: system-ui, sans-serif;
+	color: #edf1eb;
+	background: #101511;
+}
+
+html {
+	min-height: 100%;
+}
+
+body {
+	min-height: 100vh;
+	margin: 0;
+	background: #101511;
+}
+
+main {
+	max-width: 40rem;
+	padding: 2rem;
+}
+
+p {
+	color: #aab8ac;
+}
+
+span {
+	color: #edf1eb;
+}

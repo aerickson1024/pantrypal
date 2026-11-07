@@ -1,0 +1,71 @@
+# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# Frontend dependencies
+/frontend/node_modules/
+
+# Frontend build, cache, and test output
+/frontend/dist/
+/frontend/.angular/
+/frontend/.sass-cache/
+/frontend/.vite/
+/frontend/out-tsc/
+/frontend/bazel-out/
+/frontend/tmp/
+/frontend/coverage/
+/frontend/test-results/
+/frontend/playwright-report/
+/frontend/cypress/videos/
+/frontend/cypress/screenshots/
+/frontend/typings/
+/frontend/**/__screenshots__/
+/frontend/*.tsbuildinfo
+
+# Frontend package-manager logs
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+/frontend/yarn-error.log*
+/frontend/pnpm-debug.log*
+
+# Backend build, test, and publish output
+/backend/bin/
+/backend/obj/
+/backend/publish/
+/backend/artifacts/
+/backend/TestResults/
+**/*.trx
+
+# Local environment files and secrets
+/.env
+/.env.*
+!/.env.example
+/frontend/.env
+/frontend/.env.*
+!/frontend/.env.example
+/backend/.env
+/backend/.env.*
+!/backend/.env.example
+/backend/appsettings.*.local.json
+**/secrets*.json
+
+# IDE and editor state
+**/.idea/
+**/.vs/
+**/.vscode/
+**/.history/
+**/.settings/
+**/.c9/
+**/*.user
+**/*.suo
+**/*.rsuser
+**/*.sln.docstates
+**/*.slnx.docstates
+**/*.launch
+**/*.sublime-workspace
+**/*.sublime-project
+**/.project
+**/.classpath
+
+# System files
+**/.DS_Store
+**/Thumbs.db
+**/desktop.ini
