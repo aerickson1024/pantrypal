@@ -1,0 +1,152 @@
+<main>
+  <header>
+    <h1>PantryPal</h1>
+    <p>Receipt items</p>
+  </header>
+
+  <section class="results" aria-live="polite" [attr.aria-busy]="isLoading()">
+    @if (items().length) {
+      <div class="table-scroll">
+        <table>
+          <caption>Items found on the receipt</caption>
+          <thead>
+            <tr>
+              <th scope="col">Item name</th>
+              <th scope="col">Quantity</th>
+              <th scope="col">Purchase date</th>
+              <th scope="col" class="numeric">Cost per item</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (item of items(); track item.id; let last = $last) {
+              <tr>
+                <td>
+                  @if (item.aliasMatched) {
+                    <span>{{ item['item name'] }}</span>
+                  } @else if (item.isEditing) {
+                    <div class="item-editor">
+                      <div class="food-name-control" [class.food-name-control--dropup]="last">
+                        <input
+                          [id]="foodNameInputId(item.id)"
+                          type="text"
+                          maxlength="255"
+                          [value]="item.draftCanonicalName"
+                          [disabled]="item.isSaving"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          [attr.aria-expanded]="item.suggestions.length > 0"
+                          [attr.aria-controls]="'food-suggestions-' + item.id"
+                          [attr.aria-activedescendant]="activeSuggestionId(item)"
+                          [attr.aria-label]="'Canonical food name for ' + item.originalGeminiName"
+                          (input)="updateDraft(item.id, $event)"
+                          (keydown)="handleSuggestionKeydown(item.id, $event)"
+                        />
+                        @if (item.isSearching) {
+                          <span class="food-search-status" role="status">Searching foods...</span>
+                        }
+                        @if (item.suggestions.length) {
+                          <div class="food-suggestions" role="listbox" [id]="'food-suggestions-' + item.id">
+                            @for (suggestion of item.suggestions; track suggestion.foodItemId; let index = $index) {
+                              <button
+                                type="button"
+                                class="food-suggestion"
+                                [class.food-suggestion--active]="index === item.activeSuggestionIndex"
+                                [id]="suggestionOptionId(item.id, index)"
+                                role="option"
+                                [attr.aria-selected]="index === item.activeSuggestionIndex"
+                                (mousedown)="$event.preventDefault()"
+                                (click)="selectSuggestion(item.id, suggestion)"
+                              >{{ suggestion.canonicalName }}</button>
+                            }
+                          </div>
+                        }
+                        @if (item.searchError) {
+                          <span class="food-search-status" role="status">{{ item.searchError }}</span>
+                        }
+                      </div>
+                      <button
+                        type="button"
+                        class="item-action item-action--confirm"
+                        title="Save correction"
+                        [attr.aria-label]="'Save correction for ' + item.originalGeminiName"
+                        [disabled]="!canSave(item)"
+                        (click)="saveCorrection(item.id)"
+                      >&#10003;</button>
+                      <button
+                        type="button"
+                        class="item-action"
+                        title="Cancel correction"
+                        [attr.aria-label]="'Cancel correction for ' + item.originalGeminiName"
+                        [disabled]="item.isSaving"
+                        (click)="cancelEdit(item.id)"
+                      >&times;</button>
+                    </div>
+                    @if (item.editError) {
+                      <p class="item-edit-error" role="alert">{{ item.editError }}</p>
+                    }
+                  } @else {
+                    <div class="item-name-view">
+                      <button
+                        type="button"
+                        class="item-action"
+                        title="Edit food name"
+                        [attr.aria-label]="'Edit food name for ' + item.originalGeminiName"
+                        (click)="startEditing(item.id)"
+                      >&#9998;</button>
+                      <span>{{ item['item name'] }}</span>
+                    </div>
+                  }
+                </td>
+                <td>{{ item['quantity purchased'] }}</td>
+                <td>{{ item['date of purchase'] }}</td>
+                <td class="numeric">${{ formatAmount(item['cost per item']) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="purchase-action">
+        <button
+          type="button"
+          class="save-purchases"
+          [disabled]="!canSavePurchases()"
+          (click)="savePurchases()"
+        >{{ purchaseButtonLabel() }}</button>
+      </div>
+    } @else if (!isLoading() && !errorMessage()) {
+      <p class="empty-state">No receipt parsed yet.</p>
+    }
+    @if (isLoading()) {
+      <p class="status" role="status">Reading receipt...</p>
+    }
+    @if (errorMessage()) {
+      <p class="error" role="alert">{{ errorMessage() }}</p>
+    }
+    @if (purchaseStatus()) {
+      <p class="status purchase-status" role="status">{{ purchaseStatus() }}</p>
+    }
+    @if (purchaseError()) {
+      <p class="error" role="alert">{{ purchaseError() }}</p>
+    }
+  </section>
+
+  <form class="composer" (submit)="submitReceipt($event)">
+    <label for="receipt-image">Receipt image</label>
+    <div class="upload-row">
+      <input
+        id="receipt-image"
+        name="image"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        [disabled]="isLoading() || isSavingPurchases()"
+        (change)="selectImage($event)"
+      />
+      <button type="submit" [disabled]="isLoading() || isSavingPurchases() || !selectedFile()">
+        {{ isLoading() ? 'Parsing...' : 'Parse receipt' }}
+      </button>
+    </div>
+    @if (selectedFile(); as file) {
+      <p class="file-name">{{ file.name }} · {{ formatFileSize(file.size) }}</p>
+    }
+  </form>
+</main>
