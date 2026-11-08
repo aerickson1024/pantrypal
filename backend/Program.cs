@@ -40,6 +40,7 @@ app.MapGet("/api/health", () => TypedResults.Ok(new { status = "ok" }))
 
 app.MapGeminiEndpoints();
 app.MapFoodItemEndpoints();
+app.MapPurchaseEndpoints();
 app.MapDatabaseHealthEndpoints();
 
 if (app.Environment.IsDevelopment())

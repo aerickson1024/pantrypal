@@ -64,7 +64,7 @@ public sealed class GeminiService(HttpClient httpClient, IConfiguration configur
                     "Use the receipt purchase date for each item in YYYY-MM-DD format. " +
                     "Quantity must be numeric. Cost per item is the printed unit price; " +
                     "if only a line total is shown for a quantity greater than one, divide the line total by quantity. " +
-                    "Do not include tax, subtotal, discounts as separate items, or payment lines. " +
+                    "Do not include tax, subtotal, discounts as separate product items, or payment lines. " +
                     "Do not guess unreadable values; omit a line if a required value cannot be read."
             },
             new

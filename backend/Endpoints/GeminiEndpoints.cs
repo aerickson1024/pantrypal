@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using PantryPal.Api.Services;
@@ -22,7 +23,7 @@ public static class GeminiEndpoints
         endpoints.MapPost("/api/gemini/receipts/parse", ParseReceiptAsync)
             .WithName("ParseReceipt")
             .WithSummary("Extract grocery items from a receipt image")
-            .WithDescription("Returns receipt items with quantity, purchase date, and unit cost. Known aliases are replaced with their canonical food item names and marked as matched.")
+            .WithDescription("Returns a SHA-256 hash of normalized visible receipt text and receipt items with quantity, purchase date, unit cost, alias-match status, and canonical food item IDs when available.")
             .Produces<ReceiptParseResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
@@ -89,8 +90,10 @@ public static class GeminiEndpoints
             await using var imageStream = image.OpenReadStream();
             using var memoryStream = new MemoryStream();
             await imageStream.CopyToAsync(memoryStream, cancellationToken);
+            var imageBytes = memoryStream.ToArray();
+            var hash = ReceiptHash.Compute(imageBytes);
             var extractedItems = await geminiService.ExtractReceiptItemsAsync(
-                memoryStream.ToArray(),
+                imageBytes,
                 image.ContentType,
                 cancellationToken);
             var items = await receiptItemNameResolver.ResolveAliasesAsync(extractedItems, cancellationToken);
@@ -101,10 +104,11 @@ public static class GeminiEndpoints
                     result.Item.QuantityPurchased,
                     result.Item.DateOfPurchase,
                     result.Item.CostPerItem,
-                    result.AliasMatched))
+                    result.AliasMatched,
+                    result.FoodItemId?.ToString(CultureInfo.InvariantCulture)))
                 .ToArray();
 
-            return TypedResults.Ok(new ReceiptParseResponse(responseItems));
+            return TypedResults.Ok(new ReceiptParseResponse(responseItems, hash));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -140,11 +144,14 @@ public static class GeminiEndpoints
 }
 
 /// <summary>Contains the items extracted from a receipt.</summary>
-public sealed record ReceiptParseResponse(IReadOnlyList<ReceiptResponseItem> Items);
+public sealed record ReceiptParseResponse(
+    IReadOnlyList<ReceiptResponseItem> Items,
+    [property: System.Text.Json.Serialization.JsonPropertyName("hash")] string Hash);
 
 public sealed record ReceiptResponseItem(
     [property: System.Text.Json.Serialization.JsonPropertyName("item name")] string ItemName,
     [property: System.Text.Json.Serialization.JsonPropertyName("quantity purchased")] decimal QuantityPurchased,
     [property: System.Text.Json.Serialization.JsonPropertyName("date of purchase")] DateOnly DateOfPurchase,
     [property: System.Text.Json.Serialization.JsonPropertyName("cost per item")] decimal CostPerItem,
-    [property: System.Text.Json.Serialization.JsonPropertyName("aliasMatched")] bool AliasMatched);
+    [property: System.Text.Json.Serialization.JsonPropertyName("aliasMatched")] bool AliasMatched,
+    [property: System.Text.Json.Serialization.JsonPropertyName("foodItemId")] string? FoodItemId);

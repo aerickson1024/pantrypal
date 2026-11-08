@@ -7,6 +7,7 @@ interface ReceiptItem {
   'date of purchase': string;
   'cost per item': number;
   aliasMatched: boolean;
+  foodItemId: string | null;
 }
 
 interface ReceiptRow extends ReceiptItem {
@@ -20,10 +21,18 @@ interface ReceiptRow extends ReceiptItem {
 
 interface ReceiptParseResponse {
   items: ReceiptItem[];
+  hash: string;
 }
 
 interface FoodItemAliasResponse {
   canonicalName: string;
+  foodItemId: string;
+}
+
+interface PurchaseSaveResponse {
+  hash: string;
+  itemsSaved: number;
+  alreadySaved: boolean;
 }
 
 const supportedImageTypes = new Set([
@@ -108,11 +117,19 @@ const maxImageSize = 10 * 1024 * 1024;
                     </td>
                     <td>{{ item['quantity purchased'] }}</td>
                     <td>{{ item['date of purchase'] }}</td>
-                    <td class="numeric">{{ formatAmount(item['cost per item']) }}</td>
+                    <td class="numeric">\${{ formatAmount(item['cost per item']) }}</td>
                   </tr>
                 }
               </tbody>
             </table>
+          </div>
+          <div class="purchase-action">
+            <button
+              type="button"
+              class="save-purchases"
+              [disabled]="!canSavePurchases()"
+              (click)="savePurchases()"
+            >{{ purchaseButtonLabel() }}</button>
           </div>
         } @else if (!isLoading() && !errorMessage()) {
           <p class="empty-state">No receipt parsed yet.</p>
@@ -122,6 +139,12 @@ const maxImageSize = 10 * 1024 * 1024;
         }
         @if (errorMessage()) {
           <p class="error" role="alert">{{ errorMessage() }}</p>
+        }
+        @if (purchaseStatus()) {
+          <p class="status purchase-status" role="status">{{ purchaseStatus() }}</p>
+        }
+        @if (purchaseError()) {
+          <p class="error" role="alert">{{ purchaseError() }}</p>
         }
       </section>
 
@@ -133,10 +156,10 @@ const maxImageSize = 10 * 1024 * 1024;
             name="image"
             type="file"
             accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-            [disabled]="isLoading()"
+            [disabled]="isLoading() || isSavingPurchases()"
             (change)="selectImage($event)"
           />
-          <button type="submit" [disabled]="isLoading() || !selectedFile()">
+          <button type="submit" [disabled]="isLoading() || isSavingPurchases() || !selectedFile()">
             {{ isLoading() ? 'Parsing...' : 'Parse receipt' }}
           </button>
         </div>
@@ -154,12 +177,21 @@ export class App {
   protected readonly items = signal<ReceiptRow[]>([]);
   protected readonly errorMessage = signal('');
   protected readonly isLoading = signal(false);
+  protected readonly receiptHash = signal<string | null>(null);
+  protected readonly isSavingPurchases = signal(false);
+  protected readonly purchasesSaved = signal(false);
+  protected readonly purchaseStatus = signal('');
+  protected readonly purchaseError = signal('');
 
   protected selectImage(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0] ?? null;
     this.items.set([]);
     this.errorMessage.set('');
+    this.receiptHash.set(null);
+    this.purchasesSaved.set(false);
+    this.purchaseStatus.set('');
+    this.purchaseError.set('');
     this.selectedFile.set(null);
 
     if (!file) {
@@ -192,10 +224,15 @@ export class App {
     formData.append('image', file, file.name);
     this.items.set([]);
     this.errorMessage.set('');
+    this.receiptHash.set(null);
+    this.purchasesSaved.set(false);
+    this.purchaseStatus.set('');
+    this.purchaseError.set('');
     this.isLoading.set(true);
 
     this.http.post<ReceiptParseResponse>('http://localhost:5044/api/gemini/receipts/parse', formData).subscribe({
       next: (response) => {
+        this.receiptHash.set(response.hash);
         this.items.set(response.items.map((item) => ({
           ...item,
           id: this.nextRowId++,
@@ -261,6 +298,7 @@ export class App {
               ...item,
               'item name': response.canonicalName,
               aliasMatched: true,
+              foodItemId: response.foodItemId,
               draftCanonicalName: response.canonicalName,
               isEditing: false,
               isSaving: false,
@@ -275,6 +313,61 @@ export class App {
         this.items.update((rows) => rows.map((item) => item.id === rowId
           ? { ...item, isSaving: false, editError: detail }
           : item));
+      },
+    });
+  }
+
+  protected canSavePurchases(): boolean {
+    const rows = this.items();
+    return rows.length > 0 &&
+      this.receiptHash() !== null &&
+      rows.every((row) => typeof row.foodItemId === 'string' && row.foodItemId.length > 0 && !row.isEditing && !row.isSaving) &&
+      !this.isLoading() &&
+      !this.isSavingPurchases() &&
+      !this.purchasesSaved();
+  }
+
+  protected purchaseButtonLabel(): string {
+    if (this.isSavingPurchases()) {
+      return 'Saving purchases...';
+    }
+
+    return this.purchasesSaved() ? 'Purchases saved' : 'Save purchases';
+  }
+
+  protected savePurchases(): void {
+    const hash = this.receiptHash();
+    const rows = this.items();
+    if (!hash || !this.canSavePurchases()) {
+      return;
+    }
+
+    this.isSavingPurchases.set(true);
+    this.purchaseStatus.set('');
+    this.purchaseError.set('');
+
+    this.http.post<PurchaseSaveResponse>('http://localhost:5044/api/purchases', {
+      hash,
+      items: rows.map((row) => ({
+        foodItemId: row.foodItemId!,
+        dateOfPurchase: row['date of purchase'],
+        quantityPurchased: row['quantity purchased'],
+        costPerItem: row['cost per item'],
+      })),
+    }).subscribe({
+      next: (response) => {
+        this.isSavingPurchases.set(false);
+        this.purchasesSaved.set(true);
+        this.purchaseStatus.set(response.alreadySaved
+          ? 'This receipt was already saved.'
+          : `Saved ${response.itemsSaved} purchase items.`);
+      },
+      error: (response: HttpErrorResponse) => {
+        const detail = response.error && typeof response.error.detail === 'string'
+          ? response.error.detail
+          : 'Purchases could not be saved. Try again.';
+        this.isSavingPurchases.set(false);
+        this.purchaseError.set(detail);
       },
     });
   }

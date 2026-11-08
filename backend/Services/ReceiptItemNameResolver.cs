@@ -24,18 +24,18 @@ public sealed class ReceiptItemNameResolver(PantryPalDbContext dbContext) : IRec
         {
             var matches = await dbContext.FoodItemAliases
                 .Where(alias => normalizedNames.Contains(alias.Alias))
-                .Select(alias => new { alias.Alias, FoodName = alias.FoodItem.Name })
+                .Select(alias => new { alias.Alias, alias.FoodItemId, FoodName = alias.FoodItem.Name })
                 .ToListAsync(cancellationToken);
 
-            var canonicalNames = matches.ToDictionary(
+            var canonicalItems = matches.ToDictionary(
                 match => match.Alias.ToLowerInvariant(),
-                match => match.FoodName,
+                match => (match.FoodItemId, match.FoodName),
                 StringComparer.Ordinal);
 
             return items
-                .Select(item => canonicalNames.TryGetValue(item.ItemName.ToLowerInvariant(), out var canonicalName)
-                    ? new ResolvedReceiptItem(item with { ItemName = canonicalName }, true)
-                    : new ResolvedReceiptItem(item, false))
+                .Select(item => canonicalItems.TryGetValue(item.ItemName.ToLowerInvariant(), out var canonicalItem)
+                    ? new ResolvedReceiptItem(item with { ItemName = canonicalItem.FoodName }, true, canonicalItem.FoodItemId)
+                    : new ResolvedReceiptItem(item, false, null))
                 .ToArray();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -82,6 +82,30 @@ th {
 	font-weight: 600;
 }
 
+.purchase-action {
+	display: flex;
+	justify-content: center;
+	padding-top: 1rem;
+}
+
+.save-purchases {
+	display: block;
+	min-width: 13rem;
+	min-height: 3.25rem;
+	margin: 0;
+	background: #287a45;
+	color: #f3fff5;
+}
+
+.save-purchases:hover:not(:disabled) {
+	background: #329153;
+}
+
+.save-purchases:disabled {
+	background: #345b40;
+	color: #c6d5c9;
+}
+
 td:first-child {
 	font-weight: 500;
 }
@@ -98,6 +122,10 @@ font-variant-numeric: tabular-nums;
 .status,
 .file-name {
 	color: var(--muted);
+}
+
+.purchase-status {
+	color: #9de0ac;
 }
 
 .error {

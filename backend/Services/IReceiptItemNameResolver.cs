@@ -7,4 +7,4 @@ public interface IReceiptItemNameResolver
         CancellationToken cancellationToken);
 }
 
-public sealed record ResolvedReceiptItem(ReceiptItem Item, bool AliasMatched);
+public sealed record ResolvedReceiptItem(ReceiptItem Item, bool AliasMatched, ulong? FoodItemId);

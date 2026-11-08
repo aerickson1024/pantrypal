@@ -27,8 +27,8 @@
 /frontend/pnpm-debug.log*
 
 # Backend build, test, and publish output
-/backend/bin/
-/backend/obj/
+/backend/**/bin/
+/backend/**/obj/
 /backend/publish/
 /backend/artifacts/
 /backend/TestResults/

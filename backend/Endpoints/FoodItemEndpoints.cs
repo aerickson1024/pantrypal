@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Globalization;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PantryPal.Api.Data;
@@ -52,7 +53,9 @@ public static class FoodItemEndpoints
                 }
 
                 await transaction.CommitAsync(cancellationToken);
-                return TypedResults.Ok(new FoodItemAliasResponse(existingAlias.FoodItem.Name));
+                return TypedResults.Ok(new FoodItemAliasResponse(
+                    existingAlias.FoodItem.Name,
+                    existingAlias.FoodItemId.ToString(CultureInfo.InvariantCulture)));
             }
 
             var foodItem = await dbContext.FoodItems
@@ -72,7 +75,9 @@ public static class FoodItemEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            return TypedResults.Ok(new FoodItemAliasResponse(foodItem.Name));
+            return TypedResults.Ok(new FoodItemAliasResponse(
+                foodItem.Name,
+                foodItem.Id.ToString(CultureInfo.InvariantCulture)));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -91,7 +96,9 @@ public static class FoodItemEndpoints
                 {
                     if (string.Equals(existingAlias.FoodItem.Name, canonicalName, StringComparison.OrdinalIgnoreCase))
                     {
-                        return TypedResults.Ok(new FoodItemAliasResponse(existingAlias.FoodItem.Name));
+                        return TypedResults.Ok(new FoodItemAliasResponse(
+                            existingAlias.FoodItem.Name,
+                            existingAlias.FoodItemId.ToString(CultureInfo.InvariantCulture)));
                     }
 
                     return AliasConflict();
@@ -128,4 +135,5 @@ public sealed record FoodItemAliasRequest(
     [property: JsonPropertyName("canonicalName")] string CanonicalName);
 
 public sealed record FoodItemAliasResponse(
-    [property: JsonPropertyName("canonicalName")] string CanonicalName);
+    [property: JsonPropertyName("canonicalName")] string CanonicalName,
+    [property: JsonPropertyName("foodItemId")] string FoodItemId);
