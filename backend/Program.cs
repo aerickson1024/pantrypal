@@ -9,6 +9,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient<IGeminiService, GeminiService>();
 builder.Services.AddScoped<IReceiptItemNameResolver, ReceiptItemNameResolver>();
+builder.Services.AddScoped<FoodItemSearchService>();
 
 var connectionString = builder.Configuration.GetConnectionString("PantryPal");
 builder.Services.AddDbContext<PantryPalDbContext>(options =>

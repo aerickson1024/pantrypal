@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PantryPal.Api.Data;
+using PantryPal.Api.Services;
 
 namespace PantryPal.Api.Endpoints;
 
@@ -10,6 +11,13 @@ public static class FoodItemEndpoints
 {
     public static IEndpointRouteBuilder MapFoodItemEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet("/api/food-items/search", SearchFoodItemsAsync)
+            .WithName("SearchFoodItems")
+            .WithSummary("Find canonical food names matching a query")
+            .Produces<IReadOnlyList<FoodItemSearchResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         endpoints.MapPost("/api/food-items/aliases", SaveAliasAsync)
             .WithName("SaveFoodItemAlias")
             .WithSummary("Save an edited canonical food name and its receipt alias")
@@ -19,6 +27,43 @@ public static class FoodItemEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> SearchFoodItemsAsync(
+        string? q,
+        FoodItemSearchService searchService,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var query = q?.Trim();
+        if (query?.Length > 255)
+        {
+            return TypedResults.Problem(
+                title: "The food search query is too long.",
+                detail: "Search text must be no longer than 255 characters.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        try
+        {
+            var matches = await searchService.SearchAsync(query ?? string.Empty, cancellationToken);
+            return TypedResults.Ok(matches
+                .Select(match => new FoodItemSearchResponse(match.CanonicalName, match.FoodItemId))
+                .ToArray());
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is DbException or InvalidOperationException or InvalidCastException)
+        {
+            loggerFactory.CreateLogger(nameof(FoodItemEndpoints))
+                .LogError(exception, "The food item search failed.");
+            return TypedResults.Problem(
+                title: "Food item search unavailable.",
+                detail: "Food suggestions could not be loaded. Check the database connection and try again.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     private static async Task<IResult> SaveAliasAsync(
@@ -135,5 +180,9 @@ public sealed record FoodItemAliasRequest(
     [property: JsonPropertyName("canonicalName")] string CanonicalName);
 
 public sealed record FoodItemAliasResponse(
+    [property: JsonPropertyName("canonicalName")] string CanonicalName,
+    [property: JsonPropertyName("foodItemId")] string FoodItemId);
+
+public sealed record FoodItemSearchResponse(
     [property: JsonPropertyName("canonicalName")] string CanonicalName,
     [property: JsonPropertyName("foodItemId")] string FoodItemId);

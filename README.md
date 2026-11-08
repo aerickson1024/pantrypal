@@ -70,6 +70,8 @@ The `hash` is a lowercase SHA-256 digest of the uploaded image bytes. Re-uploadi
 
 An unmatched receipt name can be corrected with `POST http://localhost:5044/api/food-items/aliases` using `originalName` (the Gemini text) and `canonicalName` (the corrected name). The API reuses an existing food item or creates it when needed, then stores the original name as an alias. Its success response contains `canonicalName` and string `foodItemId`.
 
+While correcting an unmatched name, the app searches canonical food names after two seconds without typing. Case-insensitive prefix matches are returned first, followed by up to eight fuzzy alternatives. For example, `GET http://localhost:5044/api/food-items/search?q=ruf` can return `Ruffles Sour Cream and Cheddar`. Suggestions do not change or save the receipt row until selected; custom names can still be entered manually.
+
 After every row has a canonical food item, save the table with `POST http://localhost:5044/api/purchases`:
 
 ```json

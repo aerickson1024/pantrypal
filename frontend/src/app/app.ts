@@ -1,5 +1,7 @@
+import { DOCUMENT } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { afterNextRender, Component, inject, Injector, OnDestroy, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 
 interface ReceiptItem {
   'item name': string;
@@ -17,6 +19,10 @@ interface ReceiptRow extends ReceiptItem {
   isEditing: boolean;
   isSaving: boolean;
   editError: string;
+  suggestions: FoodItemSearchResponse[];
+  isSearching: boolean;
+  activeSuggestionIndex: number;
+  searchError: string;
 }
 
 interface ReceiptParseResponse {
@@ -25,6 +31,11 @@ interface ReceiptParseResponse {
 }
 
 interface FoodItemAliasResponse {
+  canonicalName: string;
+  foodItemId: string;
+}
+
+interface FoodItemSearchResponse {
   canonicalName: string;
   foodItemId: string;
 }
@@ -67,21 +78,52 @@ const maxImageSize = 10 * 1024 * 1024;
                 </tr>
               </thead>
               <tbody>
-                @for (item of items(); track item.id) {
+                @for (item of items(); track item.id; let last = $last) {
                   <tr>
                     <td>
                       @if (item.aliasMatched) {
                         <span>{{ item['item name'] }}</span>
                       } @else if (item.isEditing) {
                         <div class="item-editor">
+                          <div class="food-name-control" [class.food-name-control--dropup]="last">
                           <input
+                            [id]="foodNameInputId(item.id)"
                             type="text"
                             maxlength="255"
                             [value]="item.draftCanonicalName"
                             [disabled]="item.isSaving"
+                            role="combobox"
+                            aria-autocomplete="list"
+                            [attr.aria-expanded]="item.suggestions.length > 0"
+                            [attr.aria-controls]="'food-suggestions-' + item.id"
+                            [attr.aria-activedescendant]="activeSuggestionId(item)"
                             [attr.aria-label]="'Canonical food name for ' + item.originalGeminiName"
                             (input)="updateDraft(item.id, $event)"
+                            (keydown)="handleSuggestionKeydown(item.id, $event)"
                           />
+                          @if (item.isSearching) {
+                            <span class="food-search-status" role="status">Searching foods...</span>
+                          }
+                          @if (item.suggestions.length) {
+                            <div class="food-suggestions" role="listbox" [id]="'food-suggestions-' + item.id">
+                              @for (suggestion of item.suggestions; track suggestion.foodItemId; let index = $index) {
+                                <button
+                                  type="button"
+                                  class="food-suggestion"
+                                  [class.food-suggestion--active]="index === item.activeSuggestionIndex"
+                                  [id]="suggestionOptionId(item.id, index)"
+                                  role="option"
+                                  [attr.aria-selected]="index === item.activeSuggestionIndex"
+                                  (mousedown)="$event.preventDefault()"
+                                  (click)="selectSuggestion(item.id, suggestion)"
+                                >{{ suggestion.canonicalName }}</button>
+                              }
+                            </div>
+                          }
+                          @if (item.searchError) {
+                            <span class="food-search-status" role="status">{{ item.searchError }}</span>
+                          }
+                        </div>
                           <button
                             type="button"
                             class="item-action item-action--confirm"
@@ -170,9 +212,13 @@ const maxImageSize = 10 * 1024 * 1024;
     </main>
   `,
 })
-export class App {
+export class App implements OnDestroy {
   private readonly http = inject(HttpClient);
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
   private nextRowId = 0;
+  private readonly searchTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly searchRequests = new Map<number, Subscription>();
   protected readonly selectedFile = signal<File | null>(null);
   protected readonly items = signal<ReceiptRow[]>([]);
   protected readonly errorMessage = signal('');
@@ -183,9 +229,14 @@ export class App {
   protected readonly purchaseStatus = signal('');
   protected readonly purchaseError = signal('');
 
+  ngOnDestroy(): void {
+    this.clearFoodSearches();
+  }
+
   protected selectImage(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0] ?? null;
+    this.clearFoodSearches();
     this.items.set([]);
     this.errorMessage.set('');
     this.receiptHash.set(null);
@@ -222,6 +273,7 @@ export class App {
 
     const formData = new FormData();
     formData.append('image', file, file.name);
+    this.clearFoodSearches();
     this.items.set([]);
     this.errorMessage.set('');
     this.receiptHash.set(null);
@@ -241,6 +293,10 @@ export class App {
           isEditing: false,
           isSaving: false,
           editError: '',
+          suggestions: [],
+          isSearching: false,
+          activeSuggestionIndex: 0,
+          searchError: '',
         })));
         this.isLoading.set(false);
       },
@@ -258,13 +314,115 @@ export class App {
     this.items.update((rows) => rows.map((row) => row.id === rowId
       ? { ...row, isEditing: true, draftCanonicalName: row['item name'], editError: '' }
       : row));
+
+    afterNextRender(() => {
+      const input = this.document.getElementById(this.foodNameInputId(rowId)) as HTMLInputElement | null;
+      input?.focus();
+      input?.select();
+    }, { injector: this.injector });
+  }
+
+  protected foodNameInputId(rowId: number): string {
+    return `food-name-input-${rowId}`;
   }
 
   protected updateDraft(rowId: number, event: Event): void {
     const input = event.target as HTMLInputElement;
+    this.cancelFoodSearch(rowId);
     this.items.update((rows) => rows.map((row) => row.id === rowId
-      ? { ...row, draftCanonicalName: input.value, editError: '' }
+      ? {
+          ...row,
+          draftCanonicalName: input.value,
+          editError: '',
+          suggestions: [],
+          isSearching: false,
+          activeSuggestionIndex: 0,
+          searchError: '',
+        }
       : row));
+
+    const query = input.value.trim();
+    if (!query) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.searchTimers.delete(rowId);
+      this.items.update((rows) => rows.map((row) => row.id === rowId
+        ? { ...row, isSearching: true }
+        : row));
+
+      const request = this.http.get<FoodItemSearchResponse[]>(
+        'http://localhost:5044/api/food-items/search',
+        { params: { q: query } },
+      ).subscribe({
+        next: (suggestions) => {
+          this.searchRequests.delete(rowId);
+          this.items.update((rows) => rows.map((row) => row.id === rowId && row.isEditing && row.draftCanonicalName.trim() === query
+            ? { ...row, suggestions, isSearching: false, activeSuggestionIndex: 0, searchError: '' }
+            : row));
+        },
+        error: () => {
+          this.searchRequests.delete(rowId);
+          this.items.update((rows) => rows.map((row) => row.id === rowId && row.draftCanonicalName.trim() === query
+            ? { ...row, suggestions: [], isSearching: false, searchError: 'Food suggestions could not be loaded.' }
+            : row));
+        },
+      });
+      this.searchRequests.set(rowId, request);
+    }, 500);
+    this.searchTimers.set(rowId, timer);
+  }
+
+  protected handleSuggestionKeydown(rowId: number, event: KeyboardEvent): void {
+    const row = this.items().find((item) => item.id === rowId);
+    if (!row?.suggestions.length) {
+      if (event.key === 'Escape') {
+        this.cancelFoodSearch(rowId);
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      const activeSuggestionIndex = (row.activeSuggestionIndex + direction + row.suggestions.length) % row.suggestions.length;
+      this.items.update((rows) => rows.map((item) => item.id === rowId
+        ? { ...item, activeSuggestionIndex }
+        : item));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      this.selectSuggestion(rowId, row.suggestions[row.activeSuggestionIndex]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.items.update((rows) => rows.map((item) => item.id === rowId
+        ? { ...item, suggestions: [], activeSuggestionIndex: 0 }
+        : item));
+    }
+  }
+
+  protected selectSuggestion(rowId: number, suggestion: FoodItemSearchResponse): void {
+    this.cancelFoodSearch(rowId);
+    this.items.update((rows) => rows.map((row) => row.id === rowId
+      ? {
+          ...row,
+          draftCanonicalName: suggestion.canonicalName,
+          suggestions: [],
+          isSearching: false,
+          activeSuggestionIndex: 0,
+          searchError: '',
+        }
+      : row));
+  }
+
+  protected activeSuggestionId(row: ReceiptRow): string | null {
+    return row.suggestions.length
+      ? this.suggestionOptionId(row.id, row.activeSuggestionIndex)
+      : null;
+  }
+
+  protected suggestionOptionId(rowId: number, index: number): string {
+    return `food-suggestion-${rowId}-${index}`;
   }
 
   protected canSave(row: ReceiptRow): boolean {
@@ -272,8 +430,18 @@ export class App {
   }
 
   protected cancelEdit(rowId: number): void {
+    this.cancelFoodSearch(rowId);
     this.items.update((rows) => rows.map((row) => row.id === rowId
-      ? { ...row, isEditing: false, draftCanonicalName: row['item name'], editError: '' }
+      ? {
+          ...row,
+          isEditing: false,
+          draftCanonicalName: row['item name'],
+          editError: '',
+          suggestions: [],
+          isSearching: false,
+          activeSuggestionIndex: 0,
+          searchError: '',
+        }
       : row));
   }
 
@@ -284,8 +452,9 @@ export class App {
     }
 
     const canonicalName = row.draftCanonicalName.trim();
+    this.cancelFoodSearch(rowId);
     this.items.update((rows) => rows.map((item) => item.id === rowId
-      ? { ...item, isSaving: true, editError: '' }
+      ? { ...item, isSaving: true, editError: '', suggestions: [], isSearching: false, searchError: '' }
       : item));
 
     this.http.post<FoodItemAliasResponse>('http://localhost:5044/api/food-items/aliases', {
@@ -303,6 +472,9 @@ export class App {
               isEditing: false,
               isSaving: false,
               editError: '',
+              suggestions: [],
+              isSearching: false,
+              searchError: '',
             }
           : item));
       },
@@ -378,5 +550,25 @@ export class App {
 
   protected formatFileSize(size: number): string {
     return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  private cancelFoodSearch(rowId: number): void {
+    const timer = this.searchTimers.get(rowId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.searchTimers.delete(rowId);
+    }
+
+    this.searchRequests.get(rowId)?.unsubscribe();
+    this.searchRequests.delete(rowId);
+  }
+
+  private clearFoodSearches(): void {
+    for (const rowId of this.searchTimers.keys()) {
+      this.cancelFoodSearch(rowId);
+    }
+    for (const rowId of this.searchRequests.keys()) {
+      this.cancelFoodSearch(rowId);
+    }
   }
 }

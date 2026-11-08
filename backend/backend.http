@@ -7,3 +7,8 @@ Accept: application/json
 
 GET {{backend_HostAddress}}/api/health/database
 Accept: application/json
+
+###
+
+GET {{backend_HostAddress}}/api/food-items/search?q=appl
+Accept: application/json
