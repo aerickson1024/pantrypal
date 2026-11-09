@@ -203,6 +203,15 @@ export class App implements OnDestroy, OnInit {
     this.showPantryFilters.update(showFilters => !showFilters);
     if (!this.showPantryFilters()) {
       this.isPantryTagFilterOpen.set(false);
+      this.pantryNameFilter.set('');
+      this.selectedPantryTags.set([]);
+
+      const hadDateFilter = !!this.pantryFromDate() || !!this.pantryToDate();
+      this.pantryFromDate.set('');
+      this.pantryToDate.set('');
+      if (hadDateFilter) {
+        this.loadPantrySummary();
+      }
     }
   }
 
