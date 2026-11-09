@@ -1,7 +1,8 @@
 import { DOCUMENT } from '@angular/common';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { afterNextRender, Component, inject, Injector, OnDestroy, signal } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
+import { afterNextRender, Component, computed, HostListener, inject, Injector, OnDestroy, OnInit, signal } from '@angular/core';
+import { forkJoin, Subscription } from 'rxjs';
 
 interface ReceiptItem {
   'item name': string;
@@ -22,6 +23,7 @@ interface ReceiptRow extends ReceiptItem {
   suggestions: FoodItemSearchResponse[];
   isSearching: boolean;
   activeSuggestionIndex: number;
+  searchCompleted: boolean;
   searchError: string;
 }
 
@@ -46,6 +48,30 @@ interface PurchaseSaveResponse {
   alreadySaved: boolean;
 }
 
+interface PantryItemSummary {
+  foodItemId: string;
+  itemName: string;
+  totalQuantity: number;
+  totalSpent: number;
+  tags: string[];
+}
+
+interface PantrySummaryResponse {
+  items: PantryItemSummary[];
+  grandTotal: number;
+}
+
+interface FoodTagOption {
+  name: string;
+  usageCount: number;
+}
+
+interface FoodItemTagsResponse {
+  foodItemId: string;
+  tags: string[];
+  availableTags: FoodTagOption[];
+}
+
 const supportedImageTypes = new Set([
   'image/jpeg',
   'image/png',
@@ -58,37 +84,433 @@ const maxImageSize = 10 * 1024 * 1024;
 @Component({
   selector: 'app-root',
   templateUrl: './app.html',
+  imports: [OverlayModule],
 })
-export class App implements OnDestroy {
+export class App implements OnDestroy, OnInit {
   private readonly http = inject(HttpClient);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
   private nextRowId = 0;
   private readonly searchTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly searchRequests = new Map<number, Subscription>();
+  private pantrySummaryRequest: Subscription | null = null;
+  private fileDragDepth = 0;
+  protected readonly activePage = signal<'receiptUploads' | 'pantryItems'>('pantryItems');
   protected readonly selectedFile = signal<File | null>(null);
+  protected readonly isDraggingFile = signal(false);
   protected readonly items = signal<ReceiptRow[]>([]);
   protected readonly errorMessage = signal('');
   protected readonly isLoading = signal(false);
   protected readonly receiptHash = signal<string | null>(null);
   protected readonly isSavingPurchases = signal(false);
   protected readonly purchasesSaved = signal(false);
-  protected readonly purchaseStatus = signal('');
+  protected readonly duplicateReceipt = signal(false);
+  protected readonly savedPurchaseCount = signal<number | null>(null);
   protected readonly purchaseError = signal('');
+  protected readonly pantrySummary = signal<PantrySummaryResponse | null>(null);
+  protected readonly isLoadingPantry = signal(false);
+  protected readonly pantryError = signal('');
+  protected readonly showPantryFilters = signal(false);
+  protected readonly pantryNameFilter = signal('');
+  protected readonly pantryFromDate = signal('');
+  protected readonly pantryToDate = signal('');
+  protected readonly selectedPantryTags = signal<string[]>([]);
+  protected readonly isPantryTagFilterOpen = signal(false);
+  protected readonly availableTags = signal<FoodTagOption[]>([]);
+  protected readonly orderedPantryTags = computed(() => {
+    const selectedTags = new Set(this.selectedPantryTags().map(tag => tag.toLocaleLowerCase()));
+    const tags = this.availableTags();
+    return [
+      ...tags.filter(tag => selectedTags.has(tag.name.toLocaleLowerCase())),
+      ...tags.filter(tag => !selectedTags.has(tag.name.toLocaleLowerCase())),
+    ];
+  });
+  protected readonly editingFoodItemId = signal<string | null>(null);
+  protected readonly draftTags = signal<string[]>([]);
+  protected readonly tagSearchQuery = signal('');
+  protected readonly tagSuggestionsOpen = signal(false);
+  protected readonly activeTagSuggestionIndex = signal(0);
+  protected readonly isSavingTags = signal(false);
+  protected readonly tagEditorError = signal('');
+  protected readonly pantryTagFilterPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top' },
+    { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom' },
+  ];
+  protected readonly filteredPantryItems = computed(() => {
+    const query = this.pantryNameFilter().trim().toLocaleLowerCase();
+    const selectedTags = new Set(this.selectedPantryTags().map(tag => tag.toLocaleLowerCase()));
+
+    return (this.pantrySummary()?.items ?? []).filter(item => {
+      const matchesName = !query || item.itemName.toLocaleLowerCase().includes(query);
+      const matchesTags = !selectedTags.size
+        || item.tags.some(tag => selectedTags.has(tag.toLocaleLowerCase()));
+      return matchesName && matchesTags;
+    });
+  });
+  protected readonly filteredPantryGrandTotal = computed(() =>
+    this.filteredPantryItems().reduce((total, item) => total + item.totalSpent, 0));
+
+  ngOnInit(): void {
+    this.loadPantrySummary();
+  }
 
   ngOnDestroy(): void {
     this.clearFoodSearches();
+    this.pantrySummaryRequest?.unsubscribe();
+  }
+
+  protected showPage(page: 'receiptUploads' | 'pantryItems'): void {
+    this.activePage.set(page);
+    if (page === 'pantryItems') {
+      this.loadPantrySummary();
+    }
+  }
+
+  protected formatQuantity(quantity: number): string {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(quantity);
+  }
+
+  protected updatePantryNameFilter(event: Event): void {
+    if (this.editingFoodItemId()) {
+      return;
+    }
+
+    this.pantryNameFilter.set((event.target as HTMLInputElement).value);
+  }
+
+  protected updatePantryDateRange(boundary: 'from' | 'to', event: Event): void {
+    if (this.editingFoodItemId()) {
+      return;
+    }
+
+    const input = event.target as HTMLInputElement;
+    const date = input.value;
+    const otherDate = boundary === 'from' ? this.pantryToDate() : this.pantryFromDate();
+    if (date && otherDate && (boundary === 'from' ? date > otherDate : date < otherDate)) {
+      input.value = boundary === 'from' ? this.pantryFromDate() : this.pantryToDate();
+      return;
+    }
+
+    if (boundary === 'from') {
+      this.pantryFromDate.set(date);
+    } else {
+      this.pantryToDate.set(date);
+    }
+    this.loadPantrySummary();
+  }
+
+  protected togglePantryFilters(): void {
+    this.showPantryFilters.update(showFilters => !showFilters);
+    if (!this.showPantryFilters()) {
+      this.isPantryTagFilterOpen.set(false);
+    }
+  }
+
+  protected togglePantryTagFilter(): void {
+    if (this.editingFoodItemId() || !this.availableTags().length) {
+      return;
+    }
+
+    this.isPantryTagFilterOpen.update(isOpen => !isOpen);
+  }
+
+  protected closePantryTagFilter(trigger?: HTMLButtonElement): void {
+    this.isPantryTagFilterOpen.set(false);
+    trigger?.focus();
+  }
+
+  protected togglePantryTagSelection(tagName: string): void {
+    if (this.editingFoodItemId()) {
+      return;
+    }
+
+    this.selectedPantryTags.update(selectedTags => selectedTags.some(tag =>
+      tag.toLocaleLowerCase() === tagName.toLocaleLowerCase())
+      ? selectedTags.filter(tag => tag.toLocaleLowerCase() !== tagName.toLocaleLowerCase())
+      : [...selectedTags, tagName]);
+  }
+
+  protected unselectAllPantryTags(): void {
+    if (this.editingFoodItemId()) {
+      return;
+    }
+
+    this.selectedPantryTags.set([]);
+  }
+
+  private updateAvailableTags(tags: FoodTagOption[]): void {
+    this.availableTags.set(tags);
+    const availableTagNames = new Set(tags.map(tag => tag.name.toLocaleLowerCase()));
+    this.selectedPantryTags.update(selectedTags => selectedTags.filter(tag =>
+      availableTagNames.has(tag.toLocaleLowerCase())));
+  }
+
+  protected startEditingTags(item: PantryItemSummary): void {
+    this.isPantryTagFilterOpen.set(false);
+    this.editingFoodItemId.set(item.foodItemId);
+    this.draftTags.set([...item.tags]);
+    this.resetTagSuggestions();
+    this.tagEditorError.set('');
+
+    afterNextRender(() => {
+      this.document.getElementById(this.tagNameInputId(item.foodItemId))?.focus();
+    }, { injector: this.injector });
+  }
+
+  protected tagNameInputId(foodItemId: string): string {
+    return `tag-name-input-${foodItemId}`;
+  }
+
+  protected matchingTagSuggestions(): string[] {
+    const query = this.tagSearchQuery().trim().toLocaleLowerCase();
+    if (!query) {
+      return [];
+    }
+
+    const assignedTags = new Set(this.draftTags().map(tag => tag.toLocaleLowerCase()));
+    return this.availableTags()
+      .filter(tag => tag.name.toLocaleLowerCase().startsWith(query)
+        && !assignedTags.has(tag.name.toLocaleLowerCase()))
+      .map(tag => tag.name);
+  }
+
+  protected updateTagSearch(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.tagSearchQuery.set(input.value);
+    this.activeTagSuggestionIndex.set(0);
+    this.tagSuggestionsOpen.set(true);
+  }
+
+  protected handleTagSuggestionKeydown(
+    foodItemId: string,
+    input: HTMLInputElement,
+    event: KeyboardEvent,
+  ): void {
+    const suggestions = this.matchingTagSuggestions();
+    if (suggestions.length && event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.tagSuggestionsOpen.set(true);
+      this.activeTagSuggestionIndex.update(index => (index + 1) % suggestions.length);
+      return;
+    }
+
+    if (suggestions.length && event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.tagSuggestionsOpen.set(true);
+      this.activeTagSuggestionIndex.update(index => (index - 1 + suggestions.length) % suggestions.length);
+      return;
+    }
+
+    if (event.key === 'Escape' && this.tagSuggestionsOpen()) {
+      event.preventDefault();
+      this.tagSuggestionsOpen.set(false);
+      return;
+    }
+
+    if (event.key === 'Enter' && this.tagSuggestionsOpen() && suggestions.length) {
+      event.preventDefault();
+      this.selectTagSuggestion(input, suggestions[this.activeTagSuggestionIndex()]);
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (input.value.trim()) {
+        this.addDraftTag(input);
+      } else {
+        this.saveFoodItemTags(foodItemId, input);
+      }
+    }
+  }
+
+  protected selectTagSuggestion(input: HTMLInputElement, tagName: string): void {
+    input.value = tagName;
+    this.addDraftTag(input);
+    input.focus();
+  }
+
+  protected closeTagSuggestions(): void {
+    this.tagSuggestionsOpen.set(false);
+  }
+
+  protected addDraftTag(input: HTMLInputElement, event?: Event): void {
+    event?.preventDefault();
+    const tagName = input.value.trim();
+    if (!tagName) {
+      this.resetTagSuggestions();
+      return;
+    }
+
+    if (!this.draftTags().some(tag => tag.toLowerCase() === tagName.toLowerCase())) {
+      this.draftTags.update(tags => [...tags, tagName]);
+    }
+    input.value = '';
+    this.resetTagSuggestions();
+  }
+
+  protected removeDraftTag(tagName: string): void {
+    this.draftTags.update(tags => tags.filter(tag => tag.toLowerCase() !== tagName.toLowerCase()));
+  }
+
+  protected cancelTagEditing(): void {
+    this.editingFoodItemId.set(null);
+    this.draftTags.set([]);
+    this.resetTagSuggestions();
+    this.tagEditorError.set('');
+  }
+
+  private resetTagSuggestions(): void {
+    this.tagSearchQuery.set('');
+    this.tagSuggestionsOpen.set(false);
+    this.activeTagSuggestionIndex.set(0);
+  }
+
+  protected saveFoodItemTags(foodItemId: string, input: HTMLInputElement): void {
+    if (this.isSavingTags() || this.editingFoodItemId() !== foodItemId) {
+      return;
+    }
+
+    this.addDraftTag(input);
+    this.isSavingTags.set(true);
+    this.tagEditorError.set('');
+    this.http.put<FoodItemTagsResponse>(
+      `http://localhost:5044/api/food-items/${encodeURIComponent(foodItemId)}/tags`,
+      { tags: this.draftTags() },
+    ).subscribe({
+      next: (response) => {
+        this.pantrySummary.update(summary => summary
+          ? {
+              ...summary,
+              items: summary.items.map(item => item.foodItemId === foodItemId
+                ? { ...item, tags: response.tags }
+                : item),
+            }
+          : summary);
+        this.updateAvailableTags(response.availableTags);
+        this.isSavingTags.set(false);
+        this.cancelTagEditing();
+      },
+      error: (response: HttpErrorResponse) => {
+        this.tagEditorError.set(response.error && typeof response.error.detail === 'string'
+          ? response.error.detail
+          : 'Tags could not be saved. Check the backend connection and try again.');
+        this.isSavingTags.set(false);
+      },
+    });
+  }
+
+  private loadPantrySummary(): void {
+    this.pantrySummaryRequest?.unsubscribe();
+    this.isLoadingPantry.set(true);
+    this.pantryError.set('');
+    let params = new HttpParams();
+    if (this.pantryFromDate()) {
+      params = params.set('fromDate', this.pantryFromDate());
+    }
+    if (this.pantryToDate()) {
+      params = params.set('toDate', this.pantryToDate());
+    }
+
+    this.pantrySummaryRequest = forkJoin({
+      summary: this.http.get<PantrySummaryResponse>('http://localhost:5044/api/purchases/summary', { params }),
+      tags: this.http.get<FoodTagOption[]>('http://localhost:5044/api/tags'),
+    }).subscribe({
+      next: ({ summary, tags }) => {
+        this.pantrySummary.set(summary);
+        this.updateAvailableTags(tags);
+        this.isLoadingPantry.set(false);
+      },
+      error: (response: HttpErrorResponse) => {
+        const detail = response.error && typeof response.error.detail === 'string'
+          ? response.error.detail
+          : 'Pantry items could not be loaded. Check that the backend is running and configured.';
+        this.pantryError.set(detail);
+        this.isLoadingPantry.set(false);
+      },
+    });
   }
 
   protected selectImage(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0] ?? null;
+    this.setSelectedImage(file, input);
+  }
+
+  @HostListener('document:dragenter', ['$event'])
+  protected handleFileDragEnter(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    this.fileDragDepth += 1;
+    this.isDraggingFile.set(true);
+  }
+
+  @HostListener('document:dragover', ['$event'])
+  protected handleFileDragOver(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  @HostListener('document:dragleave', ['$event'])
+  protected handleFileDragLeave(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
+      return;
+    }
+
+    this.fileDragDepth = Math.max(0, this.fileDragDepth - 1);
+    if (this.fileDragDepth === 0) {
+      this.isDraggingFile.set(false);
+    }
+  }
+
+  @HostListener('document:drop', ['$event'])
+  protected handleFileDrop(event: DragEvent): void {
+    const file = event.dataTransfer?.files[0];
+    this.fileDragDepth = 0;
+    this.isDraggingFile.set(false);
+    if (!file) {
+      return;
+    }
+
+    event.preventDefault();
+    if (this.isLoading() || this.isSavingPurchases()) {
+      return;
+    }
+
+    const input = this.document.getElementById('receipt-image') as HTMLInputElement | null;
+    if (!input) {
+      return;
+    }
+
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    this.setSelectedImage(file, input);
+    if (this.selectedFile()) {
+      input.form?.requestSubmit();
+    }
+  }
+
+  private hasFiles(event: DragEvent): boolean {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  }
+
+  private setSelectedImage(file: File | null, input: HTMLInputElement): void {
     this.clearFoodSearches();
     this.items.set([]);
     this.errorMessage.set('');
     this.receiptHash.set(null);
     this.purchasesSaved.set(false);
-    this.purchaseStatus.set('');
+    this.duplicateReceipt.set(false);
+    this.savedPurchaseCount.set(null);
     this.purchaseError.set('');
     this.selectedFile.set(null);
 
@@ -125,7 +547,8 @@ export class App implements OnDestroy {
     this.errorMessage.set('');
     this.receiptHash.set(null);
     this.purchasesSaved.set(false);
-    this.purchaseStatus.set('');
+    this.duplicateReceipt.set(false);
+    this.savedPurchaseCount.set(null);
     this.purchaseError.set('');
     this.isLoading.set(true);
 
@@ -143,6 +566,7 @@ export class App implements OnDestroy {
           suggestions: [],
           isSearching: false,
           activeSuggestionIndex: 0,
+          searchCompleted: false,
           searchError: '',
         })));
         this.isLoading.set(false);
@@ -184,6 +608,7 @@ export class App implements OnDestroy {
           suggestions: [],
           isSearching: false,
           activeSuggestionIndex: 0,
+          searchCompleted: false,
           searchError: '',
         }
       : row));
@@ -206,13 +631,13 @@ export class App implements OnDestroy {
         next: (suggestions) => {
           this.searchRequests.delete(rowId);
           this.items.update((rows) => rows.map((row) => row.id === rowId && row.isEditing && row.draftCanonicalName.trim() === query
-            ? { ...row, suggestions, isSearching: false, activeSuggestionIndex: 0, searchError: '' }
+            ? { ...row, suggestions, isSearching: false, activeSuggestionIndex: 0, searchCompleted: true, searchError: '' }
             : row));
         },
         error: () => {
           this.searchRequests.delete(rowId);
           this.items.update((rows) => rows.map((row) => row.id === rowId && row.draftCanonicalName.trim() === query
-            ? { ...row, suggestions: [], isSearching: false, searchError: 'Food suggestions could not be loaded.' }
+            ? { ...row, suggestions: [], isSearching: false, searchCompleted: false, searchError: 'Food suggestions could not be loaded.' }
             : row));
         },
       });
@@ -222,10 +647,28 @@ export class App implements OnDestroy {
   }
 
   protected handleSuggestionKeydown(rowId: number, event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const row = this.items().find((item) => item.id === rowId);
+      if (!row) {
+        return;
+      }
+
+      if (row.suggestions.length) {
+        this.selectSuggestion(rowId, row.suggestions[row.activeSuggestionIndex]);
+      } else if (!row.isSearching && !this.searchTimers.has(rowId) && !this.searchRequests.has(rowId) && this.canSave(row)) {
+        this.saveCorrection(rowId);
+      }
+      return;
+    }
+
     const row = this.items().find((item) => item.id === rowId);
     if (!row?.suggestions.length) {
       if (event.key === 'Escape') {
         this.cancelFoodSearch(rowId);
+        this.items.update((rows) => rows.map((item) => item.id === rowId
+          ? { ...item, searchCompleted: false }
+          : item));
       }
       return;
     }
@@ -237,13 +680,10 @@ export class App implements OnDestroy {
       this.items.update((rows) => rows.map((item) => item.id === rowId
         ? { ...item, activeSuggestionIndex }
         : item));
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      this.selectSuggestion(rowId, row.suggestions[row.activeSuggestionIndex]);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       this.items.update((rows) => rows.map((item) => item.id === rowId
-        ? { ...item, suggestions: [], activeSuggestionIndex: 0 }
+        ? { ...item, suggestions: [], activeSuggestionIndex: 0, searchCompleted: false }
         : item));
     }
   }
@@ -257,6 +697,7 @@ export class App implements OnDestroy {
           suggestions: [],
           isSearching: false,
           activeSuggestionIndex: 0,
+          searchCompleted: false,
           searchError: '',
         }
       : row));
@@ -287,6 +728,7 @@ export class App implements OnDestroy {
           suggestions: [],
           isSearching: false,
           activeSuggestionIndex: 0,
+          searchCompleted: false,
           searchError: '',
         }
       : row));
@@ -301,7 +743,7 @@ export class App implements OnDestroy {
     const canonicalName = row.draftCanonicalName.trim();
     this.cancelFoodSearch(rowId);
     this.items.update((rows) => rows.map((item) => item.id === rowId
-      ? { ...item, isSaving: true, editError: '', suggestions: [], isSearching: false, searchError: '' }
+      ? { ...item, isSaving: true, editError: '', suggestions: [], isSearching: false, searchCompleted: false, searchError: '' }
       : item));
 
     this.http.post<FoodItemAliasResponse>('http://localhost:5044/api/food-items/aliases', {
@@ -321,6 +763,7 @@ export class App implements OnDestroy {
               editError: '',
               suggestions: [],
               isSearching: false,
+              searchCompleted: false,
               searchError: '',
             }
           : item));
@@ -351,7 +794,16 @@ export class App implements OnDestroy {
       return 'Saving purchases...';
     }
 
-    return this.purchasesSaved() ? 'Purchases saved' : 'Save purchases';
+    if (this.duplicateReceipt()) {
+      return 'Duplicate receipt - no items added';
+    }
+
+    const savedCount = this.savedPurchaseCount();
+    if (savedCount !== null) {
+      return `Saved ${savedCount} ${savedCount === 1 ? 'item' : 'items'} to purchases`;
+    }
+
+    return 'Save purchases';
   }
 
   protected savePurchases(): void {
@@ -362,7 +814,6 @@ export class App implements OnDestroy {
     }
 
     this.isSavingPurchases.set(true);
-    this.purchaseStatus.set('');
     this.purchaseError.set('');
 
     this.http.post<PurchaseSaveResponse>('http://localhost:5044/api/purchases', {
@@ -377,9 +828,13 @@ export class App implements OnDestroy {
       next: (response) => {
         this.isSavingPurchases.set(false);
         this.purchasesSaved.set(true);
-        this.purchaseStatus.set(response.alreadySaved
-          ? 'This receipt was already saved.'
-          : `Saved ${response.itemsSaved} purchase items.`);
+        this.duplicateReceipt.set(response.alreadySaved);
+        this.savedPurchaseCount.set(response.itemsSaved);
+        const imageInput = this.document.getElementById('receipt-image') as HTMLInputElement | null;
+        if (imageInput) {
+          imageInput.value = '';
+        }
+        this.selectedFile.set(null);
       },
       error: (response: HttpErrorResponse) => {
         const detail = response.error && typeof response.error.detail === 'string'
@@ -389,6 +844,21 @@ export class App implements OnDestroy {
         this.purchaseError.set(detail);
       },
     });
+  }
+
+  @HostListener('document:keydown.enter', ['$event'])
+  protected handleSavePurchasesEnter(event: Event): void {
+    if (this.activePage() !== 'receiptUploads' || !this.canSavePurchases()) {
+      return;
+    }
+
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('button, input, select, textarea, [contenteditable="true"]')) {
+      return;
+    }
+
+    event.preventDefault();
+    this.savePurchases();
   }
 
   protected formatAmount(amount: number): string {

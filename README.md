@@ -89,3 +89,29 @@ After every row has a canonical food item, save the table with `POST http://loca
 ```
 
 Each displayed line is saved separately, even when multiple lines reference the same food. Repeating an identical hash and ordered item list is idempotent; reusing a hash with different purchase data returns `409`. Re-uploading the same exact image file is treated as the same receipt; different image bytes produce a different hash. The general health check is at http://localhost:5044/api/health.
+
+## Pantry item tags
+
+Create the following tables manually in MySQL before running the tag-enabled backend. They use the existing `food_items.id` type (`BIGINT UNSIGNED`), InnoDB, and a case-insensitive, accent-sensitive tag-name collation. Tags are shared by multiple food items; a tag remains available only while it is assigned to at least one food item.
+
+```sql
+CREATE TABLE food_tags (
+	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	name VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_ci NOT NULL,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_food_tags_name UNIQUE (name)
+) ENGINE=InnoDB;
+
+CREATE TABLE food_item_tags (
+	food_item_id BIGINT UNSIGNED NOT NULL,
+	food_tag_id BIGINT UNSIGNED NOT NULL,
+	PRIMARY KEY (food_item_id, food_tag_id),
+	INDEX ix_food_item_tags_food_tag_id (food_tag_id),
+	CONSTRAINT fk_food_item_tags_food_items
+		FOREIGN KEY (food_item_id) REFERENCES food_items (id) ON DELETE CASCADE,
+	CONSTRAINT fk_food_item_tags_food_tags
+		FOREIGN KEY (food_tag_id) REFERENCES food_tags (id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+```
+
+`GET http://localhost:5044/api/tags` lists tags currently assigned to food items. `PUT http://localhost:5044/api/food-items/{foodItemId}/tags` replaces that food item's full tag set; for example, send `{ "tags": ["Drinks", "Pop"] }`. Send an empty array to remove all tags from an item. Tag names are trimmed, limited to 100 characters, and deduplicated case-insensitively. Tags left with no food-item associations are deleted. The Pantry Items view displays and edits tags without changing purchase quantities or spending totals.

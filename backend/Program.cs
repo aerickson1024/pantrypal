@@ -10,6 +10,8 @@ builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient<IGeminiService, GeminiService>();
 builder.Services.AddScoped<IReceiptItemNameResolver, ReceiptItemNameResolver>();
 builder.Services.AddScoped<FoodItemSearchService>();
+builder.Services.AddScoped<IPantrySummaryService, PantrySummaryService>();
+builder.Services.AddScoped<IFoodTagService, FoodTagService>();
 
 var connectionString = builder.Configuration.GetConnectionString("PantryPal");
 builder.Services.AddDbContext<PantryPalDbContext>(options =>
@@ -41,6 +43,7 @@ app.MapGet("/api/health", () => TypedResults.Ok(new { status = "ok" }))
 
 app.MapGeminiEndpoints();
 app.MapFoodItemEndpoints();
+app.MapFoodTagEndpoints();
 app.MapPurchaseEndpoints();
 app.MapDatabaseHealthEndpoints();
 

@@ -13,6 +13,10 @@ public sealed class PantryPalDbContext : DbContext
 
     public DbSet<FoodItemAlias> FoodItemAliases => Set<FoodItemAlias>();
 
+    public DbSet<FoodTag> FoodTags => Set<FoodTag>();
+
+    public DbSet<FoodItemTag> FoodItemTags => Set<FoodItemTag>();
+
     public DbSet<Purchase> Purchases => Set<Purchase>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -32,6 +36,45 @@ public sealed class PantryPalDbContext : DbContext
             entity.HasIndex(foodItem => foodItem.Name)
                 .IsUnique()
                 .HasDatabaseName("uq_food_items_name");
+        });
+
+        modelBuilder.Entity<FoodTag>(entity =>
+        {
+            entity.ToTable("food_tags");
+            entity.HasKey(tag => tag.Id);
+            entity.Property(tag => tag.Id)
+                .HasColumnName("id")
+                .HasColumnType("bigint unsigned")
+                .ValueGeneratedOnAdd();
+            entity.Property(tag => tag.Name)
+                .HasColumnName("name")
+                .HasMaxLength(100)
+                .IsRequired();
+            entity.HasIndex(tag => tag.Name)
+                .IsUnique()
+                .HasDatabaseName("uq_food_tags_name");
+        });
+
+        modelBuilder.Entity<FoodItemTag>(entity =>
+        {
+            entity.ToTable("food_item_tags");
+            entity.HasKey(link => new { link.FoodItemId, link.FoodTagId });
+            entity.Property(link => link.FoodItemId)
+                .HasColumnName("food_item_id")
+                .HasColumnType("bigint unsigned");
+            entity.Property(link => link.FoodTagId)
+                .HasColumnName("food_tag_id")
+                .HasColumnType("bigint unsigned");
+            entity.HasIndex(link => link.FoodTagId)
+                .HasDatabaseName("ix_food_item_tags_food_tag_id");
+            entity.HasOne(link => link.FoodItem)
+                .WithMany(foodItem => foodItem.Tags)
+                .HasForeignKey(link => link.FoodItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(link => link.FoodTag)
+                .WithMany(tag => tag.FoodItems)
+                .HasForeignKey(link => link.FoodTagId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<FoodItemAlias>(entity =>

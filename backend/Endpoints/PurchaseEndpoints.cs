@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PantryPal.Api.Data;
+using PantryPal.Api.Services;
 
 namespace PantryPal.Api.Endpoints;
 
@@ -14,6 +15,14 @@ public static class PurchaseEndpoints
 
     public static IEndpointRouteBuilder MapPurchaseEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet("/api/purchases/summary", GetPantrySummaryAsync)
+            .WithName("GetPantrySummary")
+            .WithSummary("Get aggregate purchase quantities and spending by food item")
+            .WithDescription("Returns totals by food item for purchases on or between the inclusive fromDate and toDate values, plus the grand total.")
+            .Produces<PantrySummaryResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         endpoints.MapPost("/api/purchases", SavePurchasesAsync)
             .WithName("SavePurchases")
             .WithSummary("Save all lines from a parsed receipt")
@@ -24,6 +33,40 @@ public static class PurchaseEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> GetPantrySummaryAsync(
+        DateOnly? fromDate,
+        DateOnly? toDate,
+        IPantrySummaryService pantrySummaryService,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (fromDate is { } startDate && toDate is { } endDate && startDate > endDate)
+        {
+            return TypedResults.Problem(
+                title: "The purchase date range is invalid.",
+                detail: "The fromDate must be on or before the toDate.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        try
+        {
+            return TypedResults.Ok(await pantrySummaryService.GetSummaryAsync(fromDate, toDate, cancellationToken));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is DbException or InvalidOperationException or InvalidCastException)
+        {
+            loggerFactory.CreateLogger(nameof(PurchaseEndpoints))
+                .LogError(exception, "The pantry purchase summary could not be loaded.");
+            return TypedResults.Problem(
+                title: "Pantry summary unavailable.",
+                detail: "The purchase summary could not be loaded. Check the database connection and try again.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     private static async Task<IResult> SavePurchasesAsync(

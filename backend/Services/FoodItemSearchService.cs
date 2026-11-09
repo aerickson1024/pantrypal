@@ -7,7 +7,7 @@ namespace PantryPal.Api.Services;
 public sealed class FoodItemSearchService(PantryPalDbContext dbContext)
 {
     private const int MaximumResults = 8;
-    private const double MinimumSimilarity = 0.3;
+    private const double MinimumSimilarity = 0.7;
 
     public async Task<IReadOnlyList<FoodItemSearchResult>> SearchAsync(
         string query,

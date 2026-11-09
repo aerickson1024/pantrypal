@@ -12,3 +12,26 @@ Accept: application/json
 
 GET {{backend_HostAddress}}/api/food-items/search?q=appl
 Accept: application/json
+
+###
+
+GET {{backend_HostAddress}}/api/purchases/summary
+Accept: application/json
+
+###
+
+GET {{backend_HostAddress}}/api/purchases/summary?fromDate=2026-01-01&toDate=2026-01-31
+Accept: application/json
+
+###
+
+GET {{backend_HostAddress}}/api/tags
+Accept: application/json
+
+### Replace all tags for a food item
+PUT {{backend_HostAddress}}/api/food-items/1/tags
+Content-Type: application/json
+
+{
+	"tags": ["Drinks", "Pop"]
+}

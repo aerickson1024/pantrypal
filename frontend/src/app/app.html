@@ -1,10 +1,60 @@
 <main>
-  <header>
+  @if (isDraggingFile()) {
+    <div class="drop-overlay" aria-hidden="true">Drop receipt image here</div>
+  }
+  <header class="app-header">
     <h1>PantryPal</h1>
-    <p>Receipt items</p>
+    <nav class="primary-nav" aria-label="Main navigation">
+      <button
+        type="button"
+        class="nav-link"
+        [class.nav-link--active]="activePage() === 'pantryItems'"
+        [attr.aria-current]="activePage() === 'pantryItems' ? 'page' : null"
+        (click)="showPage('pantryItems')"
+      >Pantry Items</button>
+      <button
+        type="button"
+        class="nav-link"
+        [class.nav-link--active]="activePage() === 'receiptUploads'"
+        [attr.aria-current]="activePage() === 'receiptUploads' ? 'page' : null"
+        (click)="showPage('receiptUploads')"
+      >Receipt Uploads</button>
+    </nav>
   </header>
 
-  <section class="results" aria-live="polite" [attr.aria-busy]="isLoading()">
+  @if (activePage() === 'receiptUploads') {
+    <form class="composer" (submit)="submitReceipt($event)">
+    <div class="composer-heading">
+      <label for="receipt-image">Receipt image</label>
+      @if (selectedFile(); as file) {
+        <p class="file-name">{{ file.name }} · {{ formatFileSize(file.size) }}</p>
+      }
+    </div>
+    <div class="upload-row">
+      <input
+        id="receipt-image"
+        name="image"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        [disabled]="isLoading() || isSavingPurchases()"
+        (change)="selectImage($event)"
+      />
+      <button type="submit" [disabled]="isLoading() || isSavingPurchases() || !selectedFile()">
+        {{ isLoading() ? 'Parsing...' : 'Parse receipt' }}
+      </button>
+    </div>
+    </form>
+
+    <section class="results" aria-live="polite" [attr.aria-busy]="isLoading()">
+    @if (isLoading()) {
+      <p class="status" role="status">Reading receipt...</p>
+    }
+    @if (errorMessage()) {
+      <p class="error" role="alert">{{ errorMessage() }}</p>
+    }
+    @if (purchaseError()) {
+      <p class="error" role="alert">{{ purchaseError() }}</p>
+    }
     @if (items().length) {
       <div class="table-scroll">
         <table>
@@ -18,15 +68,18 @@
             </tr>
           </thead>
           <tbody>
-            @for (item of items(); track item.id; let last = $last) {
+            @for (item of items(); track item.id) {
               <tr>
                 <td>
                   @if (item.aliasMatched) {
                     <span>{{ item['item name'] }}</span>
                   } @else if (item.isEditing) {
                     <div class="item-editor">
-                      <div class="food-name-control" [class.food-name-control--dropup]="last">
+                      <div class="food-name-control">
                         <input
+                          #foodNameInputElement
+                          cdkOverlayOrigin
+                          #foodNameOrigin="cdkOverlayOrigin"
                           [id]="foodNameInputId(item.id)"
                           type="text"
                           maxlength="255"
@@ -34,35 +87,46 @@
                           [disabled]="item.isSaving"
                           role="combobox"
                           aria-autocomplete="list"
-                          [attr.aria-expanded]="item.suggestions.length > 0"
+                          [attr.aria-expanded]="item.isSearching || item.suggestions.length > 0 || item.searchCompleted || !!item.searchError"
                           [attr.aria-controls]="'food-suggestions-' + item.id"
                           [attr.aria-activedescendant]="activeSuggestionId(item)"
                           [attr.aria-label]="'Canonical food name for ' + item.originalGeminiName"
                           (input)="updateDraft(item.id, $event)"
                           (keydown)="handleSuggestionKeydown(item.id, $event)"
                         />
-                        @if (item.isSearching) {
-                          <span class="food-search-status" role="status">Searching foods...</span>
-                        }
-                        @if (item.suggestions.length) {
-                          <div class="food-suggestions" role="listbox" [id]="'food-suggestions-' + item.id">
-                            @for (suggestion of item.suggestions; track suggestion.foodItemId; let index = $index) {
-                              <button
-                                type="button"
-                                class="food-suggestion"
-                                [class.food-suggestion--active]="index === item.activeSuggestionIndex"
-                                [id]="suggestionOptionId(item.id, index)"
-                                role="option"
-                                [attr.aria-selected]="index === item.activeSuggestionIndex"
-                                (mousedown)="$event.preventDefault()"
-                                (click)="selectSuggestion(item.id, suggestion)"
-                              >{{ suggestion.canonicalName }}</button>
+                        <ng-template
+                          cdkConnectedOverlay
+                          [cdkConnectedOverlayOrigin]="foodNameOrigin"
+                          [cdkConnectedOverlayOpen]="item.isSearching || item.suggestions.length > 0 || item.searchCompleted || !!item.searchError"
+                          [cdkConnectedOverlayWidth]="foodNameInputElement.offsetWidth"
+                        >
+                          <div
+                            class="food-suggestions"
+                            [attr.role]="item.suggestions.length ? 'listbox' : 'status'"
+                            [id]="'food-suggestions-' + item.id"
+                          >
+                            @if (item.isSearching) {
+                              <p class="food-search-status" role="status">Searching foods...</p>
+                            } @else if (item.suggestions.length) {
+                              @for (suggestion of item.suggestions; track suggestion.foodItemId; let index = $index) {
+                                <button
+                                  type="button"
+                                  class="food-suggestion"
+                                  [class.food-suggestion--active]="index === item.activeSuggestionIndex"
+                                  [id]="suggestionOptionId(item.id, index)"
+                                  role="option"
+                                  [attr.aria-selected]="index === item.activeSuggestionIndex"
+                                  (mousedown)="$event.preventDefault()"
+                                  (click)="selectSuggestion(item.id, suggestion)"
+                                >{{ suggestion.canonicalName }}</button>
+                              }
+                            } @else if (item.searchError) {
+                              <p class="food-search-status" role="status">{{ item.searchError }}</p>
+                            } @else {
+                              <p class="food-no-matches">No matches found</p>
                             }
                           </div>
-                        }
-                        @if (item.searchError) {
-                          <span class="food-search-status" role="status">{{ item.searchError }}</span>
-                        }
+                        </ng-template>
                       </div>
                       <button
                         type="button"
@@ -74,7 +138,7 @@
                       >&#10003;</button>
                       <button
                         type="button"
-                        class="item-action"
+                        class="item-action item-action--cancel"
                         title="Cancel correction"
                         [attr.aria-label]="'Cancel correction for ' + item.originalGeminiName"
                         [disabled]="item.isSaving"
@@ -109,6 +173,8 @@
         <button
           type="button"
           class="save-purchases"
+          [class.save-purchases--saved]="purchasesSaved()"
+          [class.save-purchases--duplicate]="duplicateReceipt()"
           [disabled]="!canSavePurchases()"
           (click)="savePurchases()"
         >{{ purchaseButtonLabel() }}</button>
@@ -116,37 +182,278 @@
     } @else if (!isLoading() && !errorMessage()) {
       <p class="empty-state">No receipt parsed yet.</p>
     }
-    @if (isLoading()) {
-      <p class="status" role="status">Reading receipt...</p>
-    }
-    @if (errorMessage()) {
-      <p class="error" role="alert">{{ errorMessage() }}</p>
-    }
-    @if (purchaseStatus()) {
-      <p class="status purchase-status" role="status">{{ purchaseStatus() }}</p>
-    }
-    @if (purchaseError()) {
-      <p class="error" role="alert">{{ purchaseError() }}</p>
-    }
-  </section>
+    </section>
+  } @else {
+    <section class="pantry-page" aria-live="polite" [attr.aria-busy]="isLoadingPantry()">
+      <div class="pantry-heading">
+        <div class="pantry-title-controls">
+          <h2>Pantry Items</h2>
+          <button
+            type="button"
+            class="pantry-filter-toggle"
+            [class.pantry-filter-toggle--active]="showPantryFilters() || pantryNameFilter() || selectedPantryTags().length"
+            [attr.aria-label]="showPantryFilters() ? 'Hide pantry filters' : 'Show pantry filters'"
+            [attr.aria-expanded]="showPantryFilters()"
+            [attr.aria-controls]="showPantryFilters() ? 'pantry-filters' : null"
+            [title]="showPantryFilters() ? 'Hide pantry filters' : 'Show pantry filters'"
+            (click)="togglePantryFilters()"
+          >
+            <span class="pantry-filter-toggle-icon" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+          </button>
+        </div>
+        @if (pantrySummary(); as summary) {
+          <p class="pantry-grand-total">Grand total <strong>{{ isLoadingPantry() ? 'Updating...' : '$' + formatAmount(filteredPantryGrandTotal()) }}</strong></p>
+        }
+      </div>
+      @if (isLoadingPantry()) {
+        <p class="status" role="status">Loading pantry items...</p>
+      }
+      @if (pantryError()) {
+        <p class="error" role="alert">{{ pantryError() }}</p>
+      }
+      @if ((!isLoadingPantry() || pantrySummary()) && !pantryError()) {
+        @if (pantrySummary(); as summary) {
+          @if (showPantryFilters()) {
+          <div class="pantry-filters" id="pantry-filters" aria-label="Filter pantry items">
+            <div class="pantry-name-filter-wrap">
+              <input
+                class="pantry-name-filter"
+                type="text"
+                [value]="pantryNameFilter()"
+                [disabled]="editingFoodItemId() !== null"
+                aria-label="Filter by food item name"
+                placeholder="Search food items"
+                (input)="updatePantryNameFilter($event)"
+              />
+              @if (pantryNameFilter()) {
+                <button
+                  type="button"
+                  class="pantry-field-clear pantry-name-clear"
+                  aria-label="Clear food item search"
+                  title="Clear search"
+                  [disabled]="editingFoodItemId() !== null"
+                  (click)="pantryNameFilter.set('')"
+                ><span class="pantry-clear-icon" aria-hidden="true"></span></button>
+              }
+            </div>
+            <div class="pantry-date-range" role="group" aria-label="Filter by purchase date">
+              <div class="pantry-date-field">
+                <span>From</span>
+                <div class="pantry-date-input-wrap">
+                  <input
+                    #pantryFromDateInput
+                    type="date"
+                    aria-label="Purchases from date"
+                    [value]="pantryFromDate()"
+                    [max]="pantryToDate() || null"
+                    [disabled]="editingFoodItemId() !== null"
+                    (change)="updatePantryDateRange('from', $event)"
+                  />
+                </div>
+              </div>
+              <div class="pantry-date-field">
+                <span>To</span>
+                <div class="pantry-date-input-wrap">
+                  <input
+                    #pantryToDateInput
+                    type="date"
+                    aria-label="Purchases to date"
+                    [value]="pantryToDate()"
+                    [min]="pantryFromDate() || null"
+                    [disabled]="editingFoodItemId() !== null"
+                    (change)="updatePantryDateRange('to', $event)"
+                  />
+                </div>
+              </div>
+            </div>
+            <div class="pantry-tag-filter">
+              <button
+                #pantryTagFilterButton
+                cdkOverlayOrigin
+                #pantryTagFilterOrigin="cdkOverlayOrigin"
+                type="button"
+                class="pantry-tag-filter-button"
+                [disabled]="editingFoodItemId() !== null || !availableTags().length"
+                [attr.aria-expanded]="isPantryTagFilterOpen()"
+                aria-haspopup="true"
+                aria-controls="pantry-tag-filter-menu"
+                (click)="togglePantryTagFilter()"
+              >
+                <span>{{ selectedPantryTags().length ? 'Tags (' + selectedPantryTags().length + ')' : 'Filter by tag' }}</span>
+                <span class="pantry-tag-filter-chevron" aria-hidden="true"></span>
+              </button>
+              <ng-template
+                cdkConnectedOverlay
+                [cdkConnectedOverlayOrigin]="pantryTagFilterOrigin"
+                [cdkConnectedOverlayOpen]="isPantryTagFilterOpen()"
+                [cdkConnectedOverlayPositions]="pantryTagFilterPositions"
+                [cdkConnectedOverlayHasBackdrop]="true"
+                cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                (backdropClick)="closePantryTagFilter()"
+              >
+                <div
+                  class="pantry-tag-filter-menu"
+                  id="pantry-tag-filter-menu"
+                  role="group"
+                  aria-label="Filter by tags"
+                  (keydown.escape)="closePantryTagFilter(pantryTagFilterButton)"
+                >
+                  <button
+                    type="button"
+                    class="pantry-tag-filter-clear"
+                    [disabled]="!selectedPantryTags().length || editingFoodItemId() !== null"
+                    (click)="unselectAllPantryTags()"
+                  >Unselect All</button>
+                  @for (tag of orderedPantryTags(); track tag.name) {
+                    <label class="pantry-tag-filter-option">
+                      <input
+                        type="checkbox"
+                        [checked]="selectedPantryTags().includes(tag.name)"
+                        [disabled]="editingFoodItemId() !== null"
+                        (change)="togglePantryTagSelection(tag.name)"
+                      />
+                      <span>{{ tag.name }} ({{ tag.usageCount }})</span>
+                    </label>
+                  }
+                </div>
+              </ng-template>
+            </div>
+          </div>
+          }
+          @if (!isLoadingPantry()) {
+          @if (summary.items.length) {
+            @if (filteredPantryItems().length) {
+              <div class="table-scroll">
+                <table>
+                  <caption>{{ pantryNameFilter().trim() || pantryFromDate() || pantryToDate() || selectedPantryTags().length ? 'Matching items from saved purchases' : 'Items from all saved purchases' }}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Food item</th>
+                      <th scope="col" class="numeric">Total quantity</th>
+                      <th scope="col" class="numeric">Total spent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of filteredPantryItems(); track item.foodItemId) {
+                      <tr>
+                        <td class="pantry-food-cell">
+                          <span
+                            class="pantry-food-name"
+                            [class.pantry-food-name--untagged]="item.tags.length === 0"
+                          >{{ item.itemName }}</span>
+                        @if (editingFoodItemId() === item.foodItemId) {
+                          <div class="tag-editor">
+                            <div class="pantry-tag-list pantry-tag-list--editing">
+                              @for (tag of draftTags(); track tag) {
+                                <span class="tag-chip">
+                                  {{ tag }}
+                                  <button
+                                    type="button"
+                                    class="tag-remove"
+                                    [attr.aria-label]="'Remove tag ' + tag"
+                                    [disabled]="isSavingTags()"
+                                    (click)="removeDraftTag(tag)"
+                                  >&times;</button>
+                                </span>
+                              }
+                            </div>
+                            <input
+                              #tagNameInput
+                              cdkOverlayOrigin
+                              #tagNameOrigin="cdkOverlayOrigin"
+                              class="tag-entry"
+                              type="text"
+                              [id]="tagNameInputId(item.foodItemId)"
+                              maxlength="100"
+                              [disabled]="isSavingTags()"
+                              [attr.aria-label]="'Add a tag to ' + item.itemName"
+                              role="combobox"
+                              aria-autocomplete="list"
+                              [attr.aria-expanded]="tagSuggestionsOpen() && matchingTagSuggestions().length > 0"
+                              aria-controls="tag-suggestions"
+                              [attr.aria-activedescendant]="tagSuggestionsOpen() && matchingTagSuggestions().length ? 'tag-suggestion-' + activeTagSuggestionIndex() : null"
+                              placeholder="Add or select a tag"
+                              (input)="updateTagSearch($event)"
+                              (keydown)="handleTagSuggestionKeydown(item.foodItemId, tagNameInput, $event)"
+                              (blur)="closeTagSuggestions()"
+                            />
+                            <ng-template
+                              cdkConnectedOverlay
+                              [cdkConnectedOverlayOrigin]="tagNameOrigin"
+                              [cdkConnectedOverlayOpen]="tagSuggestionsOpen() && matchingTagSuggestions().length > 0"
+                              [cdkConnectedOverlayWidth]="tagNameInput.offsetWidth"
+                            >
+                              <div class="tag-suggestions" id="tag-suggestions" role="listbox">
+                                @for (tag of matchingTagSuggestions(); track tag; let index = $index) {
+                                  <button
+                                    type="button"
+                                    class="tag-suggestion"
+                                    [class.tag-suggestion--active]="index === activeTagSuggestionIndex()"
+                                    [id]="'tag-suggestion-' + index"
+                                    role="option"
+                                    tabindex="-1"
+                                    [attr.aria-selected]="index === activeTagSuggestionIndex()"
+                                    (mousedown)="$event.preventDefault()"
+                                    (click)="selectTagSuggestion(tagNameInput, tag)"
+                                  >{{ tag }}</button>
+                                }
+                              </div>
+                            </ng-template>
+                            @if (tagEditorError()) {
+                              <p class="tag-editor-error" role="alert">{{ tagEditorError() }}</p>
+                            }
+                            <div class="tag-editor-actions">
+                              <button
+                                type="button"
+                                [disabled]="isSavingTags()"
+                                (click)="saveFoodItemTags(item.foodItemId, tagNameInput)"
+                              >{{ isSavingTags() ? 'Saving...' : 'Save' }}</button>
+                              <button
+                                type="button"
+                                class="tag-cancel"
+                                [disabled]="isSavingTags()"
+                                (click)="cancelTagEditing()"
+                              >Cancel</button>
+                            </div>
+                          </div>
+                        } @else {
+                          <div class="pantry-tag-list">
+                            @for (tag of item.tags; track tag) {
+                              <span class="tag-chip">{{ tag }}</span>
+                            }
+                            <button
+                              type="button"
+                              class="tag-add-button"
+                              title="Add tag"
+                              [attr.aria-label]="'Add tag to ' + item.itemName"
+                              (click)="startEditingTags(item)"
+                            ><span class="tag-add-icon" aria-hidden="true"></span></button>
+                          </div>
+                        }
+                        </td>
+                        <td class="numeric">{{ formatQuantity(item.totalQuantity) }}</td>
+                        <td class="numeric">${{ formatAmount(item.totalSpent) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else if (pantryFromDate() || pantryToDate()) {
+              <p class="empty-state" role="status">No purchases were made in the selected date range.</p>
+            } @else {
+              <p class="empty-state" role="status">No pantry items match these filters.</p>
+            }
+          } @else {
+            <p class="empty-state">No purchases saved yet.</p>
+          }
+          }
+        }
+      }
+    </section>
+  }
 
-  <form class="composer" (submit)="submitReceipt($event)">
-    <label for="receipt-image">Receipt image</label>
-    <div class="upload-row">
-      <input
-        id="receipt-image"
-        name="image"
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-        [disabled]="isLoading() || isSavingPurchases()"
-        (change)="selectImage($event)"
-      />
-      <button type="submit" [disabled]="isLoading() || isSavingPurchases() || !selectedFile()">
-        {{ isLoading() ? 'Parsing...' : 'Parse receipt' }}
-      </button>
-    </div>
-    @if (selectedFile(); as file) {
-      <p class="file-name">{{ file.name }} · {{ formatFileSize(file.size) }}</p>
-    }
-  </form>
 </main>
