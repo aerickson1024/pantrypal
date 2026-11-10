@@ -32,6 +32,8 @@ public sealed class PantrySummaryService(PantryPalDbContext dbContext) : IPantry
                 group.Key.Name,
                 TotalQuantity = group.Sum(purchase => purchase.Quantity),
                 TotalSpent = group.Sum(purchase => purchase.Quantity * purchase.CostPerItem),
+                OldestPurchaseDate = group.Min(purchase => purchase.PurchaseDate),
+                NewestPurchaseDate = group.Max(purchase => purchase.PurchaseDate),
             })
             .ToArrayAsync(cancellationToken);
 
@@ -54,6 +56,8 @@ public sealed class PantrySummaryService(PantryPalDbContext dbContext) : IPantry
             item.Name,
             item.TotalQuantity,
             item.TotalSpent,
+            item.OldestPurchaseDate,
+            item.NewestPurchaseDate,
             tagsByFoodItem.GetValueOrDefault(item.FoodItemId, Array.Empty<string>()))).ToArray();
 
         return new PantrySummaryResponse(items, items.Sum(item => item.TotalSpent));

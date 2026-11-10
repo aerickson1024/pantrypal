@@ -53,6 +53,8 @@ interface PantryItemSummary {
   itemName: string;
   totalQuantity: number;
   totalSpent: number;
+  oldestPurchaseDate: string;
+  newestPurchaseDate: string;
   tags: string[];
 }
 
@@ -149,8 +151,42 @@ export class App implements OnDestroy, OnInit {
   });
   protected readonly filteredPantryGrandTotal = computed(() =>
     this.filteredPantryItems().reduce((total, item) => total + item.totalSpent, 0));
+  protected readonly filteredPantryPurchaseSpanDays = computed(() => {
+    const items = this.filteredPantryItems();
+    const fromDate = this.pantryFromDate();
+    let oldestDate: string | null = fromDate || null;
+    let newestDate: string | null = null;
+    for (const item of items) {
+      if (!fromDate && (oldestDate === null || item.oldestPurchaseDate < oldestDate)) {
+        oldestDate = item.oldestPurchaseDate;
+      }
+      if (newestDate === null || item.newestPurchaseDate > newestDate) {
+        newestDate = item.newestPurchaseDate;
+      }
+    }
+
+    return oldestDate && newestDate
+      ? (Date.parse(newestDate) - Date.parse(oldestDate)) / 86400000
+      : null;
+  });
+  protected readonly filteredPantryDailySpend = computed(() => {
+    const days = this.filteredPantryPurchaseSpanDays();
+    return days !== null && days > 0 ? this.filteredPantryGrandTotal() / days : 0;
+  });
+  protected readonly filteredPantryMonthlySpend = computed(() => {
+    const dailySpend = this.filteredPantryDailySpend();
+    const today = new Date();
+    const daysInCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    return dailySpend * daysInCurrentMonth;
+  });
 
   ngOnInit(): void {
+    const today = new Date();
+    const yearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    this.showPantryFilters.set(true);
+    this.pantryFromDate.set(`${yearMonth}-01`);
+    this.pantryToDate.set(`${yearMonth}-${String(lastDayOfMonth).padStart(2, '0')}`);
     this.loadPantrySummary();
   }
 

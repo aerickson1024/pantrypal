@@ -206,7 +206,11 @@
           </button>
         </div>
         @if (pantrySummary(); as summary) {
-          <p class="pantry-grand-total">Grand total <strong>{{ isLoadingPantry() ? 'Updating...' : '$' + formatAmount(filteredPantryGrandTotal()) }}</strong></p>
+          <div class="pantry-grand-total" aria-label="Pantry spending summary">
+            <p><span>Grand total</span><strong>{{ isLoadingPantry() ? 'Updating...' : '$' + formatAmount(filteredPantryGrandTotal()) }}</strong></p>
+            <p><span>Velocity per day</span><strong>{{ isLoadingPantry() ? 'Updating...' : '$' + formatAmount(filteredPantryDailySpend()) }}</strong></p>
+            <p><span>Scaled monthly expense</span><strong>{{ isLoadingPantry() ? 'Updating...' : '$' + formatAmount(filteredPantryMonthlySpend()) }}</strong></p>
+          </div>
         }
       </div>
       @if (isLoadingPantry()) {

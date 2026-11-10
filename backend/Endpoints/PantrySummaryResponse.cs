@@ -13,4 +13,6 @@ public sealed record PantryItemSummaryResponse(
     [property: JsonPropertyName("itemName")] string ItemName,
     [property: JsonPropertyName("totalQuantity")] decimal TotalQuantity,
     [property: JsonPropertyName("totalSpent")] decimal TotalSpent,
+    [property: JsonPropertyName("oldestPurchaseDate")] DateOnly OldestPurchaseDate,
+    [property: JsonPropertyName("newestPurchaseDate")] DateOnly NewestPurchaseDate,
     [property: JsonPropertyName("tags")] IReadOnlyList<string> Tags);
