@@ -127,6 +127,7 @@ header h1 {
 
 .pantry-heading {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
@@ -427,18 +428,29 @@ header h1 {
 }
 
 .pantry-grand-total {
-	margin: 0;
+	display: grid;
+	width: 100%;
+	max-width: 18rem;
+	gap: 0.25rem;
+	margin: 0 0 0 auto;
 	padding: 0.5rem 0.75rem;
 	border-radius: 2px;
 	background: var(--surface);
 	color: var(--muted);
-	font-size: 1.05rem;
+	font-size: 0.95rem;
+}
+
+.pantry-grand-total p {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	margin: 0;
 }
 
 .pantry-grand-total strong {
-	margin-left: 0.4rem;
+	margin: 0;
 	color: var(--accent-hover);
-	font-size: 1.2rem;
+	font-size: 1.05rem;
 	font-variant-numeric: tabular-nums;
 }
 
