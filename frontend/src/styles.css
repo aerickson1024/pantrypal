@@ -724,6 +724,28 @@ th {
 	border-bottom-color: var(--border-strong);
 }
 
+button.sort-header {
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	background: transparent;
+	color: inherit;
+	font-size: inherit;
+	font-weight: inherit;
+}
+
+button.sort-header:hover:not(:disabled) {
+	background: transparent;
+	color: var(--text);
+}
+
+.sort-indicator {
+	display: inline-block;
+	width: 1em;
+	margin-left: 0.25rem;
+	font-size: 0.7em;
+}
+
 tbody tr:hover {
 	background: var(--surface);
 }
