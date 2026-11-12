@@ -735,6 +735,42 @@ tbody tr:hover {
 	padding-top: 1rem;
 }
 
+.manual-add-row {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+	min-height: 0;
+	width: 2.5rem;
+	height: 2.5rem;
+	padding: 0;
+	border: 1px solid var(--border-strong);
+	background: transparent;
+	color: var(--muted);
+}
+
+.manual-add-row-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+	display: block;
+}
+
+.manual-add-row:hover:not(:disabled) {
+	background: transparent;
+	color: var(--accent-hover);
+}
+
+.manual-add-row--highlight {
+	border-color: var(--accent-hover);
+	background: var(--accent);
+	color: var(--text);
+}
+
+.manual-add-row--highlight:hover:not(:disabled) {
+	background: var(--accent-hover);
+	color: var(--text);
+}
+
 .save-purchases {
 	display: block;
 	min-width: 13rem;
@@ -789,6 +825,130 @@ td:first-child {
 .numeric {
 	text-align: right;
 font-variant-numeric: tabular-nums;
+}
+
+.manual-input {
+	box-sizing: border-box;
+	width: 100%;
+	height: 2.75rem;
+	min-height: 2.75rem;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--surface);
+	color: var(--text);
+	font: inherit;
+	text-align: right;
+}
+
+.manual-input--quantity {
+	width: calc(5ch + 2.5rem);
+}
+
+.manual-input--cost {
+	width: calc(6ch + 2.5rem);
+}
+
+.manual-input--date {
+	width: calc(11.3ch + 2.825rem);
+}
+
+.manual-table .item-editor input,
+.manual-table .item-action {
+	box-sizing: border-box;
+	height: 2.75rem;
+	min-height: 2.75rem;
+}
+
+.manual-table .item-name-view {
+	align-items: center;
+}
+
+.manual-table .item-name-view span {
+	font-size: 1.2em;
+}
+
+.manual-table .item-action--confirm,
+.manual-table .item-action--cancel,
+.manual-table .item-name-view .item-action {
+	flex: 0 0 1.98rem;
+	width: 1.98rem;
+	min-width: 1.98rem;
+	height: 1.98rem;
+	min-height: 1.98rem;
+	font-size: 1.66rem;
+}
+
+.manual-table .item-action--confirm,
+.manual-table .item-name-view .item-action {
+	font-size: 1.34rem;
+}
+
+.manual-table .item-name-view .item-action {
+	flex: 0 0 1.98rem;
+	width: 1.98rem;
+	min-width: 1.98rem;
+	height: 1.98rem;
+	min-height: 1.98rem;
+	font-size: 1.21rem;
+}
+
+.manual-table {
+	table-layout: fixed;
+	min-width: 48rem;
+}
+
+.manual-col-confirm {
+	width: 3.75rem;
+}
+
+.manual-col-quantity {
+	width: calc(5ch + 4rem);
+}
+
+.manual-col-date {
+	width: calc(11.3ch + 4.325rem);
+}
+
+.manual-col-cost {
+	width: calc(6ch + 4rem);
+}
+
+.manual-col-action {
+	width: 3.75rem;
+}
+
+.item-action-icon {
+	width: 0.7em;
+	height: 0.7em;
+	display: block;
+}
+
+.manual-input:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+.manual-actions {
+	display: flex;
+	justify-content: center;
+	margin-top: 0.5rem;
+}
+
+.manual-entry .table-scroll {
+	flex: 0 0 auto;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
 }
 
 .empty-state {
@@ -935,6 +1095,10 @@ button:focus-visible {
 	background: var(--surface);
 	color: var(--text);
 	font-size: 1.15rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
 }
 
 .item-action--confirm {
@@ -951,6 +1115,7 @@ button:focus-visible {
 	border-color: var(--danger-hover);
 	background: var(--danger);
 	color: var(--danger-text);
+	font-size: 2.3rem;
 }
 
 .item-action--cancel:hover:not(:disabled) {

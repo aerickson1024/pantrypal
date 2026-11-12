@@ -74,6 +74,26 @@ interface FoodItemTagsResponse {
   availableTags: FoodTagOption[];
 }
 
+interface ManualRow {
+  id: number;
+  draftName: string;
+  foodItemName: string | null;
+  foodItemId: string | null;
+  isEditing: boolean;
+  isSaving: boolean;
+  editError: string;
+  suggestions: FoodItemSearchResponse[];
+  isSearching: boolean;
+  activeSuggestionIndex: number;
+  searchCompleted: boolean;
+  searchError: string;
+  quantity: string;
+  purchaseDate: string;
+  costPerItem: string;
+}
+
+type ManualField = 'quantity' | 'purchaseDate' | 'costPerItem';
+
 const supportedImageTypes = new Set([
   'image/jpeg',
   'image/png',
@@ -97,7 +117,15 @@ export class App implements OnDestroy, OnInit {
   private readonly searchRequests = new Map<number, Subscription>();
   private pantrySummaryRequest: Subscription | null = null;
   private fileDragDepth = 0;
-  protected readonly activePage = signal<'receiptUploads' | 'pantryItems'>('pantryItems');
+  protected readonly activePage = signal<'manualEntry' | 'receiptUploads' | 'pantryItems'>('pantryItems');
+  protected readonly manualRows = signal<ManualRow[]>([]);
+  protected readonly isSavingManualPurchases = signal(false);
+  protected readonly manualPurchaseStatus = signal('');
+  protected readonly manualPurchaseError = signal('');
+  protected readonly highlightAddManualRow = computed(() => {
+    const rows = this.manualRows();
+    return rows.length > 0 && rows.every(row => !!row.foodItemId && !row.isEditing);
+  });
   protected readonly selectedFile = signal<File | null>(null);
   protected readonly isDraggingFile = signal(false);
   protected readonly items = signal<ReceiptRow[]>([]);
@@ -181,6 +209,7 @@ export class App implements OnDestroy, OnInit {
   });
 
   ngOnInit(): void {
+    this.manualRows.set([this.createManualRow()]);
     const today = new Date();
     const yearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -195,7 +224,7 @@ export class App implements OnDestroy, OnInit {
     this.pantrySummaryRequest?.unsubscribe();
   }
 
-  protected showPage(page: 'receiptUploads' | 'pantryItems'): void {
+  protected showPage(page: 'manualEntry' | 'receiptUploads' | 'pantryItems'): void {
     this.activePage.set(page);
     if (page === 'pantryItems') {
       this.loadPantrySummary();
@@ -472,6 +501,240 @@ export class App implements OnDestroy, OnInit {
         this.pantryError.set(detail);
         this.isLoadingPantry.set(false);
       },
+    });
+  }
+
+  protected addManualRow(): void {
+    const row = this.createManualRow();
+    this.manualRows.update(rows => [...rows, row]);
+
+    afterNextRender(() => {
+      (this.document.getElementById(this.foodNameInputId(row.id)) as HTMLInputElement | null)?.focus();
+    }, { injector: this.injector });
+  }
+
+  protected removeManualRow(rowId: number): void {
+    this.cancelFoodSearch(rowId);
+    const remaining = this.manualRows().filter(row => row.id !== rowId);
+    this.manualRows.set(remaining.length ? remaining : [this.createManualRow()]);
+  }
+
+  protected updateManualField(rowId: number, field: ManualField, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.updateManualRow(rowId, row => ({ ...row, [field]: value }));
+  }
+
+  protected startManualEditing(rowId: number): void {
+    this.updateManualRow(rowId, row => ({ ...row, isEditing: true, draftName: row.foodItemName ?? row.draftName, editError: '' }));
+
+    afterNextRender(() => {
+      const input = this.document.getElementById(this.foodNameInputId(rowId)) as HTMLInputElement | null;
+      input?.focus();
+      input?.select();
+    }, { injector: this.injector });
+  }
+
+  protected cancelManualEdit(rowId: number): void {
+    this.cancelFoodSearch(rowId);
+    this.updateManualRow(rowId, row => ({
+      ...row,
+      isEditing: false,
+      draftName: row.foodItemName ?? '',
+      editError: '',
+      suggestions: [],
+      isSearching: false,
+      activeSuggestionIndex: 0,
+      searchCompleted: false,
+      searchError: '',
+    }));
+  }
+
+  protected updateManualDraft(rowId: number, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.cancelFoodSearch(rowId);
+    this.updateManualRow(rowId, row => ({
+      ...row,
+      draftName: input.value,
+      editError: '',
+      suggestions: [],
+      isSearching: false,
+      activeSuggestionIndex: 0,
+      searchCompleted: false,
+      searchError: '',
+    }));
+
+    const query = input.value.trim();
+    if (!query) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.searchTimers.delete(rowId);
+      this.updateManualRow(rowId, row => ({ ...row, isSearching: true }));
+
+      const request = this.http.get<FoodItemSearchResponse[]>(
+        'http://localhost:5044/api/food-items/search',
+        { params: { q: query } },
+      ).subscribe({
+        next: (suggestions) => {
+          this.searchRequests.delete(rowId);
+          this.updateManualRow(rowId, row => row.isEditing && row.draftName.trim() === query
+            ? { ...row, suggestions, isSearching: false, activeSuggestionIndex: 0, searchCompleted: true, searchError: '' }
+            : row);
+        },
+        error: () => {
+          this.searchRequests.delete(rowId);
+          this.updateManualRow(rowId, row => row.draftName.trim() === query
+            ? { ...row, suggestions: [], isSearching: false, searchCompleted: false, searchError: 'Food suggestions could not be loaded.' }
+            : row);
+        },
+      });
+      this.searchRequests.set(rowId, request);
+    }, 500);
+    this.searchTimers.set(rowId, timer);
+  }
+
+  protected handleManualNameKeydown(rowId: number, event: KeyboardEvent): void {
+    const row = this.manualRows().find(item => item.id === rowId);
+    if (!row) {
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (row.suggestions.length) {
+        this.selectManualSuggestion(rowId, row.suggestions[row.activeSuggestionIndex]);
+      } else if (!row.isSearching && !this.searchTimers.has(rowId) && !this.searchRequests.has(rowId) && this.canConfirmManualName(row)) {
+        this.confirmManualName(rowId);
+      }
+      return;
+    }
+
+    if (!row.suggestions.length) {
+      if (event.key === 'Escape') {
+        this.cancelFoodSearch(rowId);
+        this.updateManualRow(rowId, item => ({ ...item, searchCompleted: false }));
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      const activeSuggestionIndex = (row.activeSuggestionIndex + direction + row.suggestions.length) % row.suggestions.length;
+      this.updateManualRow(rowId, item => ({ ...item, activeSuggestionIndex }));
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.updateManualRow(rowId, item => ({ ...item, suggestions: [], activeSuggestionIndex: 0, searchCompleted: false }));
+    }
+  }
+
+  protected selectManualSuggestion(rowId: number, suggestion: FoodItemSearchResponse): void {
+    this.cancelFoodSearch(rowId);
+    this.updateManualRow(rowId, row => ({
+      ...row,
+      draftName: suggestion.canonicalName,
+      suggestions: [],
+      isSearching: false,
+      activeSuggestionIndex: 0,
+      searchCompleted: false,
+      searchError: '',
+    }));
+  }
+
+  protected canConfirmManualName(row: ManualRow): boolean {
+    const name = row.draftName.trim();
+    return !row.isSaving && name.length > 0 && name.length <= 255;
+  }
+
+  protected confirmManualName(rowId: number): void {
+    const row = this.manualRows().find(item => item.id === rowId);
+    if (!row || !this.canConfirmManualName(row)) {
+      return;
+    }
+
+    this.cancelFoodSearch(rowId);
+    this.updateManualRow(rowId, item => ({ ...item, isSaving: true, editError: '', suggestions: [], isSearching: false, searchCompleted: false, searchError: '' }));
+
+    this.http.post<FoodItemSearchResponse>('http://localhost:5044/api/food-items', {
+      name: row.draftName.trim(),
+    }).subscribe({
+      next: (response) => {
+        this.updateManualRow(rowId, item => ({
+          ...item,
+          foodItemId: response.foodItemId,
+          foodItemName: response.canonicalName,
+          draftName: response.canonicalName,
+          isEditing: false,
+          isSaving: false,
+        }));
+        afterNextRender(() => {
+          (this.document.getElementById('manual-add-row') as HTMLButtonElement | null)?.focus();
+        }, { injector: this.injector });
+      },
+      error: (response: HttpErrorResponse) => {
+        const detail = response.error && typeof response.error.detail === 'string'
+          ? response.error.detail
+          : 'The food item could not be saved. Try again.';
+        this.updateManualRow(rowId, item => ({ ...item, isSaving: false, editError: detail }));
+      },
+    });
+  }
+
+  protected canSaveManualPurchases(): boolean {
+    const rows = this.manualRows().filter(row => !this.isBlankManualRow(row));
+    return rows.length > 0 &&
+      rows.every(row => this.isValidManualRow(row)) &&
+      !this.isSavingManualPurchases();
+  }
+
+  protected saveManualPurchases(): void {
+    if (!this.canSaveManualPurchases()) {
+      return;
+    }
+
+    const lines = this.manualRows()
+      .filter(row => !this.isBlankManualRow(row))
+      .map(row => ({
+        foodItemId: row.foodItemId!,
+        name: row.foodItemName!,
+        dateOfPurchase: row.purchaseDate,
+        quantityPurchased: Number(row.quantity),
+        costPerItem: Number(row.costPerItem),
+      }))
+      .sort((a, b) => this.manualLineKey(a) < this.manualLineKey(b) ? -1 : this.manualLineKey(a) > this.manualLineKey(b) ? 1 : 0);
+
+    this.isSavingManualPurchases.set(true);
+    this.manualPurchaseStatus.set('');
+    this.manualPurchaseError.set('');
+
+    const serialized = JSON.stringify(lines.map(line => [line.name, line.dateOfPurchase, line.quantityPurchased, line.costPerItem]));
+    this.computeSha256Hex(serialized).then((hash) => {
+      this.http.post<PurchaseSaveResponse>('http://localhost:5044/api/purchases', {
+        hash,
+        items: lines.map(line => ({
+          foodItemId: line.foodItemId,
+          dateOfPurchase: line.dateOfPurchase,
+          quantityPurchased: line.quantityPurchased,
+          costPerItem: line.costPerItem,
+        })),
+      }).subscribe({
+        next: (response) => {
+          this.clearFoodSearches();
+          this.isSavingManualPurchases.set(false);
+          this.manualRows.set([this.createManualRow()]);
+          this.manualPurchaseStatus.set(response.alreadySaved
+            ? 'These purchases were already saved. No new items were added.'
+            : `Saved ${response.itemsSaved} ${response.itemsSaved === 1 ? 'item' : 'items'} to purchases.`);
+        },
+        error: (response: HttpErrorResponse) => {
+          const detail = response.error && typeof response.error.detail === 'string'
+            ? response.error.detail
+            : 'Purchases could not be saved. Try again.';
+          this.isSavingManualPurchases.set(false);
+          this.manualPurchaseError.set(detail);
+        },
+      });
     });
   }
 
@@ -912,6 +1175,59 @@ export class App implements OnDestroy, OnInit {
 
   protected formatFileSize(size: number): string {
     return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  private createManualRow(): ManualRow {
+    return {
+      id: this.nextRowId++,
+      draftName: '',
+      foodItemName: null,
+      foodItemId: null,
+      isEditing: true,
+      isSaving: false,
+      editError: '',
+      suggestions: [],
+      isSearching: false,
+      activeSuggestionIndex: 0,
+      searchCompleted: false,
+      searchError: '',
+      quantity: '',
+      purchaseDate: this.todayIsoDate(),
+      costPerItem: '',
+    };
+  }
+
+  private updateManualRow(rowId: number, update: (row: ManualRow) => ManualRow): void {
+    this.manualRows.update(rows => rows.map(row => row.id === rowId ? update(row) : row));
+  }
+
+  private todayIsoDate(): string {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }
+
+  private isBlankManualRow(row: ManualRow): boolean {
+    return !row.foodItemId && !row.draftName.trim() && !row.quantity.trim() && !row.costPerItem.trim();
+  }
+
+  private isValidManualRow(row: ManualRow): boolean {
+    const quantity = row.quantity.trim();
+    const cost = row.costPerItem.trim();
+    return !!row.foodItemId &&
+      !row.isEditing &&
+      !row.isSaving &&
+      /^\d+(\.\d{1,3})?$/.test(quantity) && Number(quantity) > 0 &&
+      /^\d+(\.\d{1,2})?$/.test(cost) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(row.purchaseDate);
+  }
+
+  private manualLineKey(line: { name: string; dateOfPurchase: string; quantityPurchased: number; costPerItem: number }): string {
+    return JSON.stringify([line.name, line.dateOfPurchase, line.quantityPurchased, line.costPerItem]);
+  }
+
+  private async computeSha256Hex(value: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
   }
 
   private cancelFoodSearch(rowId: number): void {
