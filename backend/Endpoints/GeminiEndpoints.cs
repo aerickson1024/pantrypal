@@ -101,9 +101,9 @@ public static class GeminiEndpoints
             var responseItems = items
                 .Select(result => new ReceiptResponseItem(
                     result.Item.ItemName,
-                    result.Item.QuantityPurchased,
+                    decimal.Round(result.Item.QuantityPurchased, 3, MidpointRounding.AwayFromZero),
                     result.Item.DateOfPurchase,
-                    result.Item.CostPerItem,
+                    decimal.Round(result.Item.CostPerItem, 2, MidpointRounding.AwayFromZero),
                     result.AliasMatched,
                     result.FoodItemId?.ToString(CultureInfo.InvariantCulture)))
                 .ToArray();
