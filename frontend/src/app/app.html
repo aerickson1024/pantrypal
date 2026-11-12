@@ -400,22 +400,6 @@
       <div class="pantry-heading">
         <div class="pantry-title-controls">
           <h2>Pantry Items</h2>
-          <button
-            type="button"
-            class="pantry-filter-toggle"
-            [class.pantry-filter-toggle--active]="showPantryFilters() || pantryNameFilter() || selectedPantryTags().length"
-            [attr.aria-label]="showPantryFilters() ? 'Hide pantry filters' : 'Show pantry filters'"
-            [attr.aria-expanded]="showPantryFilters()"
-            [attr.aria-controls]="showPantryFilters() ? 'pantry-filters' : null"
-            [title]="showPantryFilters() ? 'Hide pantry filters' : 'Show pantry filters'"
-            (click)="togglePantryFilters()"
-          >
-            <span class="pantry-filter-toggle-icon" aria-hidden="true">
-              <span></span>
-              <span></span>
-              <span></span>
-            </span>
-          </button>
         </div>
         @if (pantrySummary(); as summary) {
           <div class="pantry-grand-total" aria-label="Pantry spending summary">
@@ -433,6 +417,23 @@
       }
       @if ((!isLoadingPantry() || pantrySummary()) && !pantryError()) {
         @if (pantrySummary(); as summary) {
+          <div class="pantry-filter-row">
+          <button
+            type="button"
+            class="pantry-filter-toggle"
+            [class.pantry-filter-toggle--active]="showPantryFilters() || pantryNameFilter() || selectedPantryTags().length"
+            [attr.aria-label]="showPantryFilters() ? 'Hide pantry filters' : 'Show pantry filters'"
+            [attr.aria-expanded]="showPantryFilters()"
+            [attr.aria-controls]="showPantryFilters() ? 'pantry-filters' : null"
+            [title]="showPantryFilters() ? 'Hide pantry filters' : 'Show pantry filters'"
+            (click)="togglePantryFilters()"
+          >
+            <span class="pantry-filter-toggle-icon" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+          </button>
           @if (showPantryFilters()) {
           <div class="pantry-filters" id="pantry-filters" aria-label="Filter pantry items">
             <div class="pantry-name-filter-wrap">
@@ -540,6 +541,7 @@
             </div>
           </div>
           }
+          </div>
           @if (!isLoadingPantry()) {
           @if (summary.items.length) {
             @if (filteredPantryItems().length) {

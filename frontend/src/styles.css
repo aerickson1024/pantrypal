@@ -139,13 +139,24 @@ header h1 {
 	gap: 0.5rem;
 }
 
+.pantry-filter-row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.pantry-filter-row > .pantry-filters {
+	flex: 1 1 auto;
+}
+
 .pantry-filter-toggle {
 	display: grid;
-	flex: 0 0 1.5rem;
+	flex: 0 0 2.5rem;
 	place-items: center;
-	width: 1.5rem;
-	min-width: 1.5rem;
-	min-height: 1.5rem;
+	width: 2.5rem;
+	min-width: 2.5rem;
+	min-height: 2.5rem;
+	height: 2.5rem;
 	padding: 0;
 	border: 1px solid var(--border);
 	border-radius: 3px;
@@ -163,8 +174,8 @@ header h1 {
 .pantry-filter-toggle-icon {
 	display: flex;
 	flex-direction: column;
-	gap: 3px;
-	width: 0.6rem;
+	gap: 3.75px;
+	width: 0.75rem;
 }
 
 .pantry-filter-toggle-icon span {
@@ -177,10 +188,10 @@ header h1 {
 
 .pantry-filter-toggle-icon span::after {
 	position: absolute;
-	top: -1.5px;
+	top: -1.875px;
 	left: var(--filter-knob-position);
-	width: 2px;
-	height: 2px;
+	width: 2.5px;
+	height: 2.5px;
 	border: 1px solid currentColor;
 	border-radius: 50%;
 	background: var(--surface);
@@ -188,15 +199,15 @@ header h1 {
 }
 
 .pantry-filter-toggle-icon span:nth-child(1) {
-	--filter-knob-position: 1px;
+	--filter-knob-position: 1.25px;
 }
 
 .pantry-filter-toggle-icon span:nth-child(2) {
-	--filter-knob-position: 5px;
+	--filter-knob-position: 6.25px;
 }
 
 .pantry-filter-toggle-icon span:nth-child(3) {
-	--filter-knob-position: 3px;
+	--filter-knob-position: 3.75px;
 }
 
 .pantry-filters {
@@ -424,7 +435,8 @@ header h1 {
 
 .pantry-page h2 {
 	margin: 0;
-	font-size: 1.25rem;
+	font-size: 2.5rem;
+	line-height: 1;
 }
 
 .pantry-grand-total {
