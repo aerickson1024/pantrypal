@@ -548,9 +548,21 @@
                   <caption>{{ pantryNameFilter().trim() || pantryFromDate() || pantryToDate() || selectedPantryTags().length ? 'Matching items from saved purchases' : 'Items from all saved purchases' }}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Food item</th>
-                      <th scope="col" class="numeric">Total quantity</th>
-                      <th scope="col" class="numeric">Total spent</th>
+                      <th scope="col" [attr.aria-sort]="pantryAriaSort('itemName')">
+                        <button type="button" class="sort-header" (click)="sortPantryBy('itemName')">
+                          Food item<span class="sort-indicator" aria-hidden="true">{{ pantrySort()?.column === 'itemName' ? (pantrySort()?.direction === 'asc' ? '&#9650;' : '&#9660;') : '' }}</span>
+                        </button>
+                      </th>
+                      <th scope="col" class="numeric" [attr.aria-sort]="pantryAriaSort('totalQuantity')">
+                        <button type="button" class="sort-header" (click)="sortPantryBy('totalQuantity')">
+                          Total quantity<span class="sort-indicator" aria-hidden="true">{{ pantrySort()?.column === 'totalQuantity' ? (pantrySort()?.direction === 'asc' ? '&#9650;' : '&#9660;') : '' }}</span>
+                        </button>
+                      </th>
+                      <th scope="col" class="numeric" [attr.aria-sort]="pantryAriaSort('totalSpent')">
+                        <button type="button" class="sort-header" (click)="sortPantryBy('totalSpent')">
+                          Total spent<span class="sort-indicator" aria-hidden="true">{{ pantrySort()?.column === 'totalSpent' ? (pantrySort()?.direction === 'asc' ? '&#9650;' : '&#9660;') : '' }}</span>
+                        </button>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>

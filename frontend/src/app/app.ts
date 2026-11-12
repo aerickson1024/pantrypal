@@ -58,6 +58,8 @@ interface PantryItemSummary {
   tags: string[];
 }
 
+type PantrySortColumn = 'itemName' | 'totalQuantity' | 'totalSpent';
+
 interface PantrySummaryResponse {
   items: PantryItemSummary[];
   grandTotal: number;
@@ -166,16 +168,27 @@ export class App implements OnDestroy, OnInit {
     { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top' },
     { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom' },
   ];
+  protected readonly pantrySort = signal<{ column: PantrySortColumn; direction: 'asc' | 'desc' } | null>(null);
   protected readonly filteredPantryItems = computed(() => {
     const query = this.pantryNameFilter().trim().toLocaleLowerCase();
     const selectedTags = new Set(this.selectedPantryTags().map(tag => tag.toLocaleLowerCase()));
+    const sort = this.pantrySort();
 
-    return (this.pantrySummary()?.items ?? []).filter(item => {
+    const items = (this.pantrySummary()?.items ?? []).filter(item => {
       const matchesName = !query || item.itemName.toLocaleLowerCase().includes(query);
       const matchesTags = !selectedTags.size
         || item.tags.some(tag => selectedTags.has(tag.toLocaleLowerCase()));
       return matchesName && matchesTags;
     });
+
+    if (!sort) {
+      return items;
+    }
+
+    const factor = sort.direction === 'asc' ? 1 : -1;
+    return [...items].sort((a, b) => factor * (sort.column === 'itemName'
+      ? a.itemName.localeCompare(b.itemName, undefined, { sensitivity: 'base' })
+      : a[sort.column] - b[sort.column]));
   });
   protected readonly filteredPantryGrandTotal = computed(() =>
     this.filteredPantryItems().reduce((total, item) => total + item.totalSpent, 0));
@@ -502,6 +515,23 @@ export class App implements OnDestroy, OnInit {
         this.isLoadingPantry.set(false);
       },
     });
+  }
+
+  protected sortPantryBy(column: PantrySortColumn): void {
+    const current = this.pantrySort();
+    if (current?.column === column) {
+      this.pantrySort.set({ column, direction: current.direction === 'asc' ? 'desc' : 'asc' });
+    } else {
+      this.pantrySort.set({ column, direction: column === 'itemName' ? 'asc' : 'desc' });
+    }
+  }
+
+  protected pantryAriaSort(column: PantrySortColumn): 'ascending' | 'descending' | 'none' {
+    const sort = this.pantrySort();
+    if (sort?.column !== column) {
+      return 'none';
+    }
+    return sort.direction === 'asc' ? 'ascending' : 'descending';
   }
 
   protected addManualRow(): void {
