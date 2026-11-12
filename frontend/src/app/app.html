@@ -15,6 +15,13 @@
       <button
         type="button"
         class="nav-link"
+        [class.nav-link--active]="activePage() === 'manualEntry'"
+        [attr.aria-current]="activePage() === 'manualEntry' ? 'page' : null"
+        (click)="showPage('manualEntry')"
+      >Manual Entry</button>
+      <button
+        type="button"
+        class="nav-link"
         [class.nav-link--active]="activePage() === 'receiptUploads'"
         [attr.aria-current]="activePage() === 'receiptUploads' ? 'page' : null"
         (click)="showPage('receiptUploads')"
@@ -182,6 +189,211 @@
     } @else if (!isLoading() && !errorMessage()) {
       <p class="empty-state">No receipt parsed yet.</p>
     }
+    </section>
+  } @else if (activePage() === 'manualEntry') {
+    <section class="results manual-entry" aria-live="polite">
+      <div class="table-scroll">
+        <table class="manual-table">
+          <caption>Items to input manually</caption>
+          <colgroup>
+            <col />
+            <col class="manual-col-quantity" />
+            <col class="manual-col-date" />
+            <col class="manual-col-cost" />
+            <col class="manual-col-confirm" />
+            <col class="manual-col-action" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Item name</th>
+              <th scope="col">Quantity</th>
+              <th scope="col">Purchase date</th>
+              <th scope="col" class="numeric">Cost per item</th>
+              <th scope="col"><span class="sr-only">Confirm</span></th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of manualRows(); track row.id) {
+              <tr>
+                <td>
+                  @if (row.isEditing) {
+                    <div class="item-editor">
+                      <div class="food-name-control">
+                        <input
+                          #manualNameInput
+                          cdkOverlayOrigin
+                          #manualNameOrigin="cdkOverlayOrigin"
+                          [id]="foodNameInputId(row.id)"
+                          type="text"
+                          maxlength="255"
+                          placeholder="Item name"
+                          [value]="row.draftName"
+                          [disabled]="row.isSaving"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          [attr.aria-expanded]="row.isSearching || row.suggestions.length > 0 || row.searchCompleted || !!row.searchError"
+                          [attr.aria-controls]="'food-suggestions-' + row.id"
+                          [attr.aria-activedescendant]="row.suggestions.length ? suggestionOptionId(row.id, row.activeSuggestionIndex) : null"
+                          aria-label="Item name"
+                          (input)="updateManualDraft(row.id, $event)"
+                          (keydown)="handleManualNameKeydown(row.id, $event)"
+                        />
+                        <ng-template
+                          cdkConnectedOverlay
+                          [cdkConnectedOverlayOrigin]="manualNameOrigin"
+                          [cdkConnectedOverlayOpen]="row.isSearching || row.suggestions.length > 0 || row.searchCompleted || !!row.searchError"
+                          [cdkConnectedOverlayWidth]="manualNameInput.offsetWidth"
+                        >
+                          <div
+                            class="food-suggestions"
+                            [attr.role]="row.suggestions.length ? 'listbox' : 'status'"
+                            [id]="'food-suggestions-' + row.id"
+                          >
+                            @if (row.isSearching) {
+                              <p class="food-search-status" role="status">Searching foods...</p>
+                            } @else if (row.suggestions.length) {
+                              @for (suggestion of row.suggestions; track suggestion.foodItemId; let index = $index) {
+                                <button
+                                  type="button"
+                                  class="food-suggestion"
+                                  [class.food-suggestion--active]="index === row.activeSuggestionIndex"
+                                  [id]="suggestionOptionId(row.id, index)"
+                                  role="option"
+                                  [attr.aria-selected]="index === row.activeSuggestionIndex"
+                                  (mousedown)="$event.preventDefault()"
+                                  (click)="selectManualSuggestion(row.id, suggestion)"
+                                >{{ suggestion.canonicalName }}</button>
+                              }
+                            } @else if (row.searchError) {
+                              <p class="food-search-status" role="status">{{ row.searchError }}</p>
+                            } @else {
+                              <p class="food-no-matches">No matches found</p>
+                            }
+                          </div>
+                        </ng-template>
+                      </div>
+                      @if (row.foodItemId) {
+                        <button
+                          type="button"
+                          class="item-action item-action--cancel"
+                          title="Cancel name change"
+                          aria-label="Cancel name change"
+                          [disabled]="row.isSaving"
+                          (click)="cancelManualEdit(row.id)"
+                        >&times;</button>
+                      }
+                    </div>
+                    @if (row.editError) {
+                      <p class="item-edit-error" role="alert">{{ row.editError }}</p>
+                    }
+                  } @else {
+                    <div class="item-name-view">
+                      <button
+                        type="button"
+                        class="item-action"
+                        title="Edit item name"
+                        [attr.aria-label]="'Edit item name for ' + row.foodItemName"
+                        (click)="startManualEditing(row.id)"
+                      >&#9998;</button>
+                      <span>{{ row.foodItemName }}</span>
+                    </div>
+                  }
+                </td>
+                <td>
+                  <input
+                    class="manual-input manual-input--quantity"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    aria-label="Quantity"
+                    [value]="row.quantity"
+                    [disabled]="row.isSaving"
+                    (input)="updateManualField(row.id, 'quantity', $event)"
+                  />
+                </td>
+                <td>
+                  <input
+                    class="manual-input manual-input--date"
+                    type="date"
+                    aria-label="Purchase date"
+                    [value]="row.purchaseDate"
+                    [disabled]="row.isSaving"
+                    (input)="updateManualField(row.id, 'purchaseDate', $event)"
+                  />
+                </td>
+                <td class="numeric">
+                  <input
+                    class="manual-input manual-input--cost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    aria-label="Cost per item"
+                    [value]="row.costPerItem"
+                    [disabled]="row.isSaving"
+                    (input)="updateManualField(row.id, 'costPerItem', $event)"
+                  />
+                </td>
+                <td>
+                  @if (row.isEditing) {
+                    <button
+                      type="button"
+                      class="item-action item-action--confirm"
+                      title="Confirm item name"
+                      aria-label="Confirm item name"
+                      [disabled]="!canConfirmManualName(row)"
+                      (click)="confirmManualName(row.id)"
+                    >&#10003;</button>
+                  }
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    class="item-action item-action--cancel"
+                    title="Remove row"
+                    [attr.aria-label]="'Remove ' + (row.foodItemName || 'empty row')"
+                    [disabled]="row.isSaving"
+                    (click)="removeManualRow(row.id)"
+                  >
+                    <svg class="item-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" fill="none" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="manual-actions">
+        <button
+          id="manual-add-row"
+          type="button"
+          class="manual-add-row"
+          title="Add next row"
+          aria-label="Add next row"
+          [class.manual-add-row--highlight]="highlightAddManualRow()"
+          (click)="addManualRow()"
+        >
+          <svg class="manual-add-row-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 4V20M4 12H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
+          </svg>
+        </button>
+      </div>
+      @if (manualPurchaseError()) {
+        <p class="error" role="alert">{{ manualPurchaseError() }}</p>
+      }
+      @if (manualPurchaseStatus()) {
+        <p class="status" role="status">{{ manualPurchaseStatus() }}</p>
+      }
+      <div class="purchase-action">
+        <button
+          type="button"
+          class="save-purchases"
+          [disabled]="!canSaveManualPurchases()"
+          (click)="saveManualPurchases()"
+        >{{ isSavingManualPurchases() ? 'Saving purchases...' : 'Save purchases' }}</button>
+      </div>
     </section>
   } @else {
     <section class="pantry-page" aria-live="polite" [attr.aria-busy]="isLoadingPantry()">
