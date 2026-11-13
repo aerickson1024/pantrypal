@@ -27,6 +27,7 @@
 /frontend/pnpm-debug.log*
 
 # Backend build, test, and publish output
+/backend/wwwroot/
 /backend/**/bin/
 /backend/**/obj/
 /backend/publish/
@@ -69,3 +70,6 @@
 **/.DS_Store
 **/Thumbs.db
 **/desktop.ini
+
+# Deployable folder
+/deploy/

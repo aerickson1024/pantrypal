@@ -44,6 +44,10 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
+            "outputPath": {
+              "base": "../backend/wwwroot",
+              "browser": ""
+            },
             "tsConfig": "tsconfig.app.json",
             "assets": [
               {
@@ -81,6 +85,9 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
           "configurations": {
             "production": {
               "buildTarget": "frontend:build:production"

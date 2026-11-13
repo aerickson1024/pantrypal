@@ -461,7 +461,7 @@ export class App implements OnDestroy, OnInit {
     this.isSavingTags.set(true);
     this.tagEditorError.set('');
     this.http.put<FoodItemTagsResponse>(
-      `http://localhost:5044/api/food-items/${encodeURIComponent(foodItemId)}/tags`,
+      `/api/food-items/${encodeURIComponent(foodItemId)}/tags`,
       { tags: this.draftTags() },
     ).subscribe({
       next: (response) => {
@@ -499,8 +499,8 @@ export class App implements OnDestroy, OnInit {
     }
 
     this.pantrySummaryRequest = forkJoin({
-      summary: this.http.get<PantrySummaryResponse>('http://localhost:5044/api/purchases/summary', { params }),
-      tags: this.http.get<FoodTagOption[]>('http://localhost:5044/api/tags'),
+      summary: this.http.get<PantrySummaryResponse>('/api/purchases/summary', { params }),
+      tags: this.http.get<FoodTagOption[]>('/api/tags'),
     }).subscribe({
       next: ({ summary, tags }) => {
         this.pantrySummary.set(summary);
@@ -603,7 +603,7 @@ export class App implements OnDestroy, OnInit {
       this.updateManualRow(rowId, row => ({ ...row, isSearching: true }));
 
       const request = this.http.get<FoodItemSearchResponse[]>(
-        'http://localhost:5044/api/food-items/search',
+        '/api/food-items/search',
         { params: { q: query } },
       ).subscribe({
         next: (suggestions) => {
@@ -686,7 +686,7 @@ export class App implements OnDestroy, OnInit {
     this.cancelFoodSearch(rowId);
     this.updateManualRow(rowId, item => ({ ...item, isSaving: true, editError: '', suggestions: [], isSearching: false, searchCompleted: false, searchError: '' }));
 
-    this.http.post<FoodItemSearchResponse>('http://localhost:5044/api/food-items', {
+    this.http.post<FoodItemSearchResponse>('/api/food-items', {
       name: row.draftName.trim(),
     }).subscribe({
       next: (response) => {
@@ -740,7 +740,7 @@ export class App implements OnDestroy, OnInit {
 
     const serialized = JSON.stringify(lines.map(line => [line.name, line.dateOfPurchase, line.quantityPurchased, line.costPerItem]));
     this.computeSha256Hex(serialized).then((hash) => {
-      this.http.post<PurchaseSaveResponse>('http://localhost:5044/api/purchases', {
+      this.http.post<PurchaseSaveResponse>('/api/purchases', {
         hash,
         items: lines.map(line => ({
           foodItemId: line.foodItemId,
@@ -890,7 +890,7 @@ export class App implements OnDestroy, OnInit {
     this.purchaseError.set('');
     this.isLoading.set(true);
 
-    this.http.post<ReceiptParseResponse>('http://localhost:5044/api/gemini/receipts/parse', formData).subscribe({
+    this.http.post<ReceiptParseResponse>('/api/gemini/receipts/parse', formData).subscribe({
       next: (response) => {
         this.receiptHash.set(response.hash);
         this.items.set(response.items.map((item) => ({
@@ -963,7 +963,7 @@ export class App implements OnDestroy, OnInit {
         : row));
 
       const request = this.http.get<FoodItemSearchResponse[]>(
-        'http://localhost:5044/api/food-items/search',
+        '/api/food-items/search',
         { params: { q: query } },
       ).subscribe({
         next: (suggestions) => {
@@ -1084,7 +1084,7 @@ export class App implements OnDestroy, OnInit {
       ? { ...item, isSaving: true, editError: '', suggestions: [], isSearching: false, searchCompleted: false, searchError: '' }
       : item));
 
-    this.http.post<FoodItemAliasResponse>('http://localhost:5044/api/food-items/aliases', {
+    this.http.post<FoodItemAliasResponse>('/api/food-items/aliases', {
       originalName: row.originalGeminiName,
       canonicalName,
     }).subscribe({
@@ -1154,7 +1154,7 @@ export class App implements OnDestroy, OnInit {
     this.isSavingPurchases.set(true);
     this.purchaseError.set('');
 
-    this.http.post<PurchaseSaveResponse>('http://localhost:5044/api/purchases', {
+    this.http.post<PurchaseSaveResponse>('/api/purchases', {
       hash,
       items: rows.map((row) => ({
         foodItemId: row.foodItemId!,

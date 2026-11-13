@@ -48,6 +48,29 @@ npm start
 
 Open http://localhost:4200, choose a receipt image, and select **Parse receipt**. JPEG, PNG, WebP, HEIC, and HEIF images up to 10 MB are accepted.
 
+The frontend calls the API with relative `/api/...` URLs. During development, `npm start` forwards `/api` requests to `http://localhost:5044` using [frontend/proxy.conf.json](frontend/proxy.conf.json), so the API must be running on that port.
+
+## Deploy
+
+The API serves the built Angular app, so one process hosts both the UI (at `/`) and the API (at `/api`) on a single origin.
+
+1. Build the frontend. The production build is written to `backend/wwwroot/` (git-ignored):
+
+   ```sh
+   cd frontend
+   npm run build
+   ```
+
+2. Publish the backend from the repository root. The published output includes `wwwroot`:
+
+   ```sh
+   dotnet publish backend/backend.csproj -c Release
+   ```
+
+3. Run the published app on the host. Unknown non-API paths fall back to `index.html` so client-side routes work.
+
+On the host, provide the MySQL connection string (`ConnectionStrings__PantryPal`) and Gemini key (`Gemini__ApiKey`) as environment variables or the host's secret store instead of `appsettings.json`, and serve over HTTPS. The development CORS policy for `http://localhost:4200` is not needed when the app is served from one origin.
+
 The receipt API accepts `POST http://localhost:5044/api/gemini/receipts/parse` as `multipart/form-data` with the image in the `image` field. It returns a top-level `hash` and an `items` array; each item has these JSON properties:
 
 ```json

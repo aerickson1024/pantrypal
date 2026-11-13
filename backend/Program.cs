@@ -35,6 +35,8 @@ var app = builder.Build();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet("/api/health", () => TypedResults.Ok(new { status = "ok" }))
     .WithName("HealthCheck")
@@ -51,5 +53,7 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+app.MapFallbackToFile("index.html");
 
 app.Run();
