@@ -81,7 +81,7 @@
                   @if (item.aliasMatched) {
                     <span>{{ item['item name'] }}</span>
                   } @else if (item.isEditing) {
-                    <div class="item-editor">
+                    <div class="item-editor receipt-item-editor">
                       <div class="food-name-control">
                         <input
                           #foodNameInputElement
@@ -150,7 +150,7 @@
                         [attr.aria-label]="'Cancel correction for ' + item.originalGeminiName"
                         [disabled]="item.isSaving"
                         (click)="cancelEdit(item.id)"
-                      >&times;</button>
+                      ><span class="cancel-icon" aria-hidden="true"></span></button>
                     </div>
                     @if (item.editError) {
                       <p class="item-edit-error" role="alert">{{ item.editError }}</p>

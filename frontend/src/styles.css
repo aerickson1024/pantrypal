@@ -1047,6 +1047,10 @@ button:focus-visible {
 	gap: 0.5rem;
 }
 
+.item-name-view {
+	align-items: center;
+}
+
 .food-name-control {
 	position: relative;
 	flex: 1 1 12rem;
@@ -1154,6 +1158,45 @@ button:focus-visible {
 
 .item-action--cancel:hover:not(:disabled) {
 	background: var(--danger-hover);
+}
+
+.receipt-item-editor {
+	align-items: center;
+}
+
+.receipt-item-editor .item-action {
+	flex: 0 0 2.025rem;
+	width: 2.025rem;
+	min-width: 2.025rem;
+	height: 2.025rem;
+	min-height: 2.025rem;
+	font-size: 1.035rem;
+}
+
+.receipt-item-editor .cancel-icon {
+	position: relative;
+	display: block;
+	width: 0.8rem;
+	height: 0.8rem;
+}
+
+.receipt-item-editor .cancel-icon::before,
+.receipt-item-editor .cancel-icon::after {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 100%;
+	height: 2px;
+	background: currentColor;
+	content: '';
+}
+
+.receipt-item-editor .cancel-icon::before {
+	transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.receipt-item-editor .cancel-icon::after {
+	transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 .item-edit-error {
