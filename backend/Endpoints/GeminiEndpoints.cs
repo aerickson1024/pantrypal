@@ -21,6 +21,7 @@ public static class GeminiEndpoints
     public static IEndpointRouteBuilder MapGeminiEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/api/gemini/receipts/parse", ParseReceiptAsync)
+            .RequireApiKey()
             .WithName("ParseReceipt")
             .WithSummary("Extract grocery items from a receipt image")
             .WithDescription("Returns a SHA-256 hash of normalized visible receipt text and receipt items with quantity, purchase date, unit cost, alias-match status, and canonical food item IDs when available.")
@@ -76,14 +77,7 @@ public static class GeminiEndpoints
                 statusCode: StatusCodes.Status415UnsupportedMediaType);
         }
 
-        if (!geminiService.IsConfigured)
-        {
-            return TypedResults.Problem(
-                title: "Gemini is not configured.",
-                detail: "Set the Gemini:ApiKey user secret for the backend.",
-                statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
-
+        var geminiApiKey = request.Headers[ApiKeyEndpoints.HeaderName].ToString().Trim();
         var logger = loggerFactory.CreateLogger(nameof(GeminiEndpoints));
         try
         {
@@ -95,6 +89,7 @@ public static class GeminiEndpoints
             var extractedItems = await geminiService.ExtractReceiptItemsAsync(
                 imageBytes,
                 image.ContentType,
+                geminiApiKey,
                 cancellationToken);
             var items = await receiptItemNameResolver.ResolveAliasesAsync(extractedItems, cancellationToken);
 

@@ -1,8 +1,9 @@
 import { DOCUMENT } from '@angular/common';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
-import { afterNextRender, Component, computed, HostListener, inject, Injector, OnDestroy, OnInit, signal } from '@angular/core';
+import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, OnDestroy, OnInit, signal } from '@angular/core';
 import { forkJoin, Subscription } from 'rxjs';
+import { ApiKeyService } from './api-key.service';
 
 interface ReceiptItem {
   'item name': string;
@@ -114,12 +115,13 @@ export class App implements OnDestroy, OnInit {
   private readonly http = inject(HttpClient);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
+  protected readonly apiKey = inject(ApiKeyService);
   private nextRowId = 0;
   private readonly searchTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly searchRequests = new Map<number, Subscription>();
   private pantrySummaryRequest: Subscription | null = null;
   private fileDragDepth = 0;
-  protected readonly activePage = signal<'manualEntry' | 'receiptUploads' | 'pantryItems'>('pantryItems');
+  protected readonly activePage = signal<'manualEntry' | 'receiptUploads' | 'pantryItems' | 'apiKey'>('pantryItems');
   protected readonly manualRows = signal<ManualRow[]>([]);
   protected readonly isSavingManualPurchases = signal(false);
   protected readonly manualPurchaseStatus = signal('');
@@ -221,6 +223,15 @@ export class App implements OnDestroy, OnInit {
     return dailySpend * daysInCurrentMonth;
   });
 
+  constructor() {
+    effect(() => {
+      const page = this.activePage();
+      if (!this.apiKey.isValid() && (page === 'manualEntry' || page === 'receiptUploads')) {
+        this.activePage.set('apiKey');
+      }
+    });
+  }
+
   ngOnInit(): void {
     this.manualRows.set([this.createManualRow()]);
     const today = new Date();
@@ -237,11 +248,24 @@ export class App implements OnDestroy, OnInit {
     this.pantrySummaryRequest?.unsubscribe();
   }
 
-  protected showPage(page: 'manualEntry' | 'receiptUploads' | 'pantryItems'): void {
+  protected showPage(page: 'manualEntry' | 'receiptUploads' | 'pantryItems' | 'apiKey'): void {
     this.activePage.set(page);
     if (page === 'pantryItems') {
       this.loadPantrySummary();
     }
+  }
+
+  protected updateApiKey(event: Event): void {
+    this.apiKey.setKey((event.target as HTMLInputElement).value);
+  }
+
+  private requireApiKey(): boolean {
+    if (this.apiKey.isValid()) {
+      return true;
+    }
+
+    this.showPage('apiKey');
+    return false;
   }
 
   protected formatQuantity(quantity: number): string {
@@ -333,6 +357,10 @@ export class App implements OnDestroy, OnInit {
   }
 
   protected startEditingTags(item: PantryItemSummary): void {
+    if (!this.requireApiKey()) {
+      return;
+    }
+
     this.isPantryTagFilterOpen.set(false);
     this.editingFoodItemId.set(item.foodItemId);
     this.draftTags.set([...item.tags]);
@@ -819,7 +847,7 @@ export class App implements OnDestroy, OnInit {
     }
 
     event.preventDefault();
-    if (this.isLoading() || this.isSavingPurchases()) {
+    if (!this.requireApiKey() || this.isLoading() || this.isSavingPurchases()) {
       return;
     }
 

@@ -19,6 +19,7 @@ public static class FoodTagEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPut("/api/food-items/{foodItemId}/tags", ReplaceFoodItemTagsAsync)
+            .RequireApiKey()
             .WithName("ReplaceFoodItemTags")
             .WithSummary("Replace all tags assigned to a food item")
             .Produces<FoodItemTagsResponse>(StatusCodes.Status200OK)

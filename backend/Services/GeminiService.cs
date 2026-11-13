@@ -4,11 +4,10 @@ using System.Text.Json;
 
 namespace PantryPal.Api.Services;
 
-public sealed class GeminiService(HttpClient httpClient, IConfiguration configuration) : IGeminiService
+public sealed class GeminiService(HttpClient httpClient) : IGeminiService
 {
     private const string Endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions";
     private const string Model = "gemini-3.5-flash-lite";
-    private readonly string? apiKey = configuration["Gemini:ApiKey"];
 
     private static readonly object ReceiptResponseFormat = new
     {
@@ -48,11 +47,10 @@ public sealed class GeminiService(HttpClient httpClient, IConfiguration configur
         }
     };
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(apiKey);
-
     public async Task<IReadOnlyList<ReceiptItem>> ExtractReceiptItemsAsync(
         ReadOnlyMemory<byte> imageData,
         string mimeType,
+        string apiKey,
         CancellationToken cancellationToken)
     {
         var input = new object[]

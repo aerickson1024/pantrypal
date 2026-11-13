@@ -24,6 +24,7 @@ public static class PurchaseEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPost("/api/purchases", SavePurchasesAsync)
+            .RequireApiKey()
             .WithName("SavePurchases")
             .WithSummary("Save all lines from a parsed receipt")
             .Produces<PurchaseSaveResponse>(StatusCodes.Status200OK)

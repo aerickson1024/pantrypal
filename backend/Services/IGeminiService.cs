@@ -2,11 +2,10 @@ namespace PantryPal.Api.Services;
 
 public interface IGeminiService
 {
-    bool IsConfigured { get; }
-
     Task<IReadOnlyList<ReceiptItem>> ExtractReceiptItemsAsync(
         ReadOnlyMemory<byte> imageData,
         string mimeType,
+        string apiKey,
         CancellationToken cancellationToken);
 }
 

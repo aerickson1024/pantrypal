@@ -1,3 +1,6 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using PantryPal.Api.Endpoints;
 using PantryPal.Api.Data;
 using PantryPal.Api.Services;
@@ -7,6 +10,22 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(ApiKeyEndpoints.VerifyRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
+builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
 builder.Services.AddHttpClient<IGeminiService, GeminiService>();
 builder.Services.AddScoped<IReceiptItemNameResolver, ReceiptItemNameResolver>();
 builder.Services.AddScoped<FoodItemSearchService>();
@@ -32,9 +51,11 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseCors();
+app.UseRateLimiter();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -48,6 +69,7 @@ app.MapFoodItemEndpoints();
 app.MapFoodTagEndpoints();
 app.MapPurchaseEndpoints();
 app.MapDatabaseHealthEndpoints();
+app.MapApiKeyEndpoints();
 
 if (app.Environment.IsDevelopment())
 {

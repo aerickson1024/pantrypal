@@ -84,6 +84,17 @@ header h1 {
 	font-size: 1.5rem;
 }
 
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.brand-logo {
+	height: 2.5rem;
+	width: auto;
+}
+
 .primary-nav {
 	display: flex;
 	align-items: center;
@@ -111,6 +122,57 @@ header h1 {
 .nav-link--active {
 	border-bottom-color: var(--accent);
 	color: var(--text);
+}
+
+.api-key-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	margin-top: 1rem;
+	padding: 1.25rem;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--surface-band);
+}
+
+.api-key-panel h2 {
+	margin: 0;
+	font-size: 1.25rem;
+}
+
+.api-key-panel p {
+	margin: 0;
+	color: var(--muted);
+}
+
+.api-key-input-row {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.api-key-input-row input {
+	flex: 1;
+	min-width: 0;
+	min-height: 2.5rem;
+	padding: 0.4rem 0.65rem;
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	background: var(--surface);
+	color: var(--text);
+	font: inherit;
+}
+
+.api-key-input-row input:focus {
+	border-color: var(--accent);
+	outline: none;
+}
+
+.api-key-status--valid {
+	color: var(--success-text) !important;
+}
+
+.api-key-status--invalid {
+	color: var(--danger-foreground) !important;
 }
 
 .pantry-page {

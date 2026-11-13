@@ -1,4 +1,5 @@
 @backend_HostAddress = http://localhost:5044
+@apiKey = replace-with-gemini-api-key
 
 GET {{backend_HostAddress}}/api/health
 Accept: application/json
@@ -31,7 +32,13 @@ Accept: application/json
 ### Replace all tags for a food item
 PUT {{backend_HostAddress}}/api/food-items/1/tags
 Content-Type: application/json
+X-Api-Key: {{apiKey}}
 
 {
 	"tags": ["Drinks", "Pop"]
 }
+
+###
+
+POST {{backend_HostAddress}}/api/auth/verify-key
+X-Api-Key: {{apiKey}}

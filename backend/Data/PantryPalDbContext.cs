@@ -19,8 +19,38 @@ public sealed class PantryPalDbContext : DbContext
 
     public DbSet<Purchase> Purchases => Set<Purchase>();
 
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ApiKey>(entity =>
+        {
+            entity.ToTable("api_keys");
+            entity.HasKey(apiKey => apiKey.Id);
+            entity.Property(apiKey => apiKey.Id)
+                .HasColumnName("id")
+                .HasColumnType("bigint unsigned");
+            entity.Property(apiKey => apiKey.KeyHash)
+                .HasColumnName("key_hash")
+                .HasColumnType("char(64)")
+                .HasMaxLength(64)
+                .IsRequired();
+            entity.Property(apiKey => apiKey.Label)
+                .HasColumnName("label")
+                .HasMaxLength(100);
+            entity.Property(apiKey => apiKey.IsActive)
+                .HasColumnName("is_active")
+                .HasColumnType("tinyint(1)")
+                .IsRequired();
+            entity.Property(apiKey => apiKey.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamp")
+                .IsRequired();
+            entity.HasIndex(apiKey => apiKey.KeyHash)
+                .IsUnique()
+                .HasDatabaseName("uq_api_keys_key_hash");
+        });
+
         modelBuilder.Entity<FoodItem>(entity =>
         {
             entity.ToTable("food_items");

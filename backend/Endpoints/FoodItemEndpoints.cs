@@ -19,6 +19,7 @@ public static class FoodItemEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPost("/api/food-items/aliases", SaveAliasAsync)
+            .RequireApiKey()
             .WithName("SaveFoodItemAlias")
             .WithSummary("Save an edited canonical food name and its receipt alias")
             .Produces<FoodItemAliasResponse>(StatusCodes.Status200OK)
@@ -27,6 +28,7 @@ public static class FoodItemEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPost("/api/food-items", CreateFoodItemAsync)
+            .RequireApiKey()
             .WithName("CreateFoodItem")
             .WithSummary("Find or create a canonical food item by name")
             .Produces<FoodItemSearchResponse>(StatusCodes.Status200OK)

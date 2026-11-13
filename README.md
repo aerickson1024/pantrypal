@@ -9,16 +9,29 @@ A minimal Angular frontend and ASP.NET Core API with Gemini-powered grocery rece
 - MySQL 8.0 or later
 - A Gemini API key
 
-## Configure Gemini
+## Configure API key access
 
-Store your key in .NET User Secrets from the repository root:
+Writes (receipt parsing, manual entry, purchase saves, and tag edits) require a Gemini API key sent by the browser in the `X-Api-Key` header. The key is entered on the **API Key** page and kept in that browser's `localStorage`. The Gemini key is not stored in configuration; the backend uses the key it receives for each receipt request.
 
-```sh
-dotnet user-secrets set "Gemini:ApiKey" "<your Gemini API key>" --project backend
+The backend stores only a SHA-256 hash of each accepted key. Create the table and add your key from the MySQL client:
+
+```sql
+CREATE TABLE api_keys (
+	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+	label VARCHAR(100) CHARACTER SET utf8mb4 NULL,
+	is_active TINYINT(1) NOT NULL DEFAULT 1,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_api_keys_key_hash UNIQUE (key_hash)
+) ENGINE=InnoDB;
+
+INSERT INTO api_keys (key_hash, label) VALUES (SHA2('<your Gemini API key>', 256), 'primary');
 ```
 
-The key stays on the backend and is not committed to source control. Restart the backend after changing the secret.
+Revoke a key with `UPDATE api_keys SET is_active = 0 WHERE label = 'primary';`. Changes apply on the next request; no restart is needed. Avoid leaving the key in shell history after running the insert.
 
+Read-only endpoints (pantry summary, food search, tags) stay open. `POST /api/auth/verify-key` is rate limited to 10 attempts per minute per IP.
 ## Configure local MySQL
 
 Create the database and MySQL user locally, then store the connection string in .NET User Secrets:
@@ -69,7 +82,7 @@ The API serves the built Angular app, so one process hosts both the UI (at `/`) 
 
 3. Run the published app on the host. Unknown non-API paths fall back to `index.html` so client-side routes work.
 
-On the host, provide the MySQL connection string (`ConnectionStrings__PantryPal`) and Gemini key (`Gemini__ApiKey`) as environment variables or the host's secret store instead of `appsettings.json`, and serve over HTTPS. The development CORS policy for `http://localhost:4200` is not needed when the app is served from one origin.
+On the host, provide the MySQL connection string (`ConnectionStrings__PantryPal`) as an environment variable or the host's secret store instead of `appsettings.json`, create the `api_keys` table and key row as described above, and serve over HTTPS. The development CORS policy for `http://localhost:4200` is not needed when the app is served from one origin.
 
 The receipt API accepts `POST http://localhost:5044/api/gemini/receipts/parse` as `multipart/form-data` with the image in the `image` field. It returns a top-level `hash` and an `items` array; each item has these JSON properties:
 

@@ -3,7 +3,10 @@
     <div class="drop-overlay" aria-hidden="true">Drop receipt image here</div>
   }
   <header class="app-header">
-    <h1>PantryPal</h1>
+    <div class="brand">
+      <img class="brand-logo" src="/pantrypal-logo.png" alt="" aria-hidden="true" />
+      <h1>PantryPal</h1>
+    </div>
     <nav class="primary-nav" aria-label="Main navigation">
       <button
         type="button"
@@ -12,24 +15,58 @@
         [attr.aria-current]="activePage() === 'pantryItems' ? 'page' : null"
         (click)="showPage('pantryItems')"
       >Pantry Items</button>
+      @if (apiKey.isValid()) {
+        <button
+          type="button"
+          class="nav-link"
+          [class.nav-link--active]="activePage() === 'manualEntry'"
+          [attr.aria-current]="activePage() === 'manualEntry' ? 'page' : null"
+          (click)="showPage('manualEntry')"
+        >Manual Entry</button>
+        <button
+          type="button"
+          class="nav-link"
+          [class.nav-link--active]="activePage() === 'receiptUploads'"
+          [attr.aria-current]="activePage() === 'receiptUploads' ? 'page' : null"
+          (click)="showPage('receiptUploads')"
+        >Receipt Uploads</button>
+      }
       <button
         type="button"
         class="nav-link"
-        [class.nav-link--active]="activePage() === 'manualEntry'"
-        [attr.aria-current]="activePage() === 'manualEntry' ? 'page' : null"
-        (click)="showPage('manualEntry')"
-      >Manual Entry</button>
-      <button
-        type="button"
-        class="nav-link"
-        [class.nav-link--active]="activePage() === 'receiptUploads'"
-        [attr.aria-current]="activePage() === 'receiptUploads' ? 'page' : null"
-        (click)="showPage('receiptUploads')"
-      >Receipt Uploads</button>
+        [class.nav-link--active]="activePage() === 'apiKey'"
+        [attr.aria-current]="activePage() === 'apiKey' ? 'page' : null"
+        (click)="showPage('apiKey')"
+      >API Key</button>
     </nav>
   </header>
 
-  @if (activePage() === 'receiptUploads') {
+  @if (activePage() === 'apiKey') {
+    <section class="api-key-panel" aria-labelledby="api-key-heading">
+      <h2 id="api-key-heading">Gemini API key</h2>
+      <p>The key is stored in this browser only. The server checks it against saved key hashes.</p>
+      <label for="api-key-input">API key</label>
+      <div class="api-key-input-row">
+        <input
+          id="api-key-input"
+          name="apiKey"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Paste your Gemini API key"
+          [value]="apiKey.key()"
+          (input)="updateApiKey($event)"
+        />
+        <button type="button" [disabled]="!apiKey.key()" (click)="apiKey.clear()">Clear</button>
+      </div>
+      <p
+        class="api-key-status"
+        role="status"
+        [class.api-key-status--valid]="apiKey.isValid()"
+        [class.api-key-status--invalid]="apiKey.status() === 'invalid' || apiKey.status() === 'error'"
+      >{{ apiKey.statusMessage() }}</p>
+    </section>
+  } @else if (activePage() === 'receiptUploads') {
     <form class="composer" (submit)="submitReceipt($event)">
     <div class="composer-heading">
       <label for="receipt-image">Receipt image</label>
@@ -655,13 +692,15 @@
                             @for (tag of item.tags; track tag) {
                               <span class="tag-chip">{{ tag }}</span>
                             }
-                            <button
-                              type="button"
-                              class="tag-add-button"
-                              title="Add tag"
-                              [attr.aria-label]="'Add tag to ' + item.itemName"
-                              (click)="startEditingTags(item)"
-                            ><span class="tag-add-icon" aria-hidden="true"></span></button>
+                            @if (apiKey.isValid()) {
+                              <button
+                                type="button"
+                                class="tag-add-button"
+                                title="Add tag"
+                                [attr.aria-label]="'Add tag to ' + item.itemName"
+                                (click)="startEditingTags(item)"
+                              ><span class="tag-add-icon" aria-hidden="true"></span></button>
+                            }
                           </div>
                         }
                         </td>
