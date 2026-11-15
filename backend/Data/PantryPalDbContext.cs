@@ -19,36 +19,72 @@ public sealed class PantryPalDbContext : DbContext
 
     public DbSet<Purchase> Purchases => Set<Purchase>();
 
-    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<InviteCode> InviteCodes => Set<InviteCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<ApiKey>(entity =>
+        modelBuilder.Entity<User>(entity =>
         {
-            entity.ToTable("api_keys");
-            entity.HasKey(apiKey => apiKey.Id);
-            entity.Property(apiKey => apiKey.Id)
+            entity.ToTable("users");
+            entity.HasKey(user => user.Id);
+            entity.Property(user => user.Id)
                 .HasColumnName("id")
                 .HasColumnType("bigint unsigned");
-            entity.Property(apiKey => apiKey.KeyHash)
-                .HasColumnName("key_hash")
-                .HasColumnType("char(64)")
-                .HasMaxLength(64)
+            entity.Property(user => user.Email)
+                .HasColumnName("email")
+                .HasMaxLength(255)
                 .IsRequired();
-            entity.Property(apiKey => apiKey.Label)
-                .HasColumnName("label")
-                .HasMaxLength(100);
-            entity.Property(apiKey => apiKey.IsActive)
-                .HasColumnName("is_active")
-                .HasColumnType("tinyint(1)")
+            entity.Property(user => user.FirstName)
+                .HasColumnName("first_name")
+                .HasMaxLength(100)
                 .IsRequired();
-            entity.Property(apiKey => apiKey.CreatedAt)
+            entity.Property(user => user.LastName)
+                .HasColumnName("last_name")
+                .HasMaxLength(100)
+                .IsRequired();
+            entity.Property(user => user.PasswordHash)
+                .HasColumnName("password_hash")
+                .HasMaxLength(255)
+                .IsRequired();
+            entity.Property(user => user.ProtectedGeminiApiKey)
+                .HasColumnName("gemini_api_key_protected")
+                .HasColumnType("text");
+            entity.Property(user => user.CreatedAt)
                 .HasColumnName("created_at")
                 .HasColumnType("timestamp")
                 .IsRequired();
-            entity.HasIndex(apiKey => apiKey.KeyHash)
+            entity.HasIndex(user => user.Email)
                 .IsUnique()
-                .HasDatabaseName("uq_api_keys_key_hash");
+                .HasDatabaseName("uq_users_email");
+        });
+
+        modelBuilder.Entity<InviteCode>(entity =>
+        {
+            entity.ToTable("invite_codes");
+            entity.HasKey(inviteCode => inviteCode.Id);
+            entity.Property(inviteCode => inviteCode.Id)
+                .HasColumnName("id")
+                .HasColumnType("bigint unsigned");
+            entity.Property(inviteCode => inviteCode.CodeHash)
+                .HasColumnName("code_hash")
+                .HasColumnType("char(64)")
+                .HasMaxLength(64)
+                .IsRequired();
+            entity.Property(inviteCode => inviteCode.UsedByUserId)
+                .HasColumnName("used_by_user_id")
+                .HasColumnType("bigint unsigned");
+            entity.Property(inviteCode => inviteCode.UsedAt)
+                .HasColumnName("used_at")
+                .HasColumnType("timestamp");
+            entity.Property(inviteCode => inviteCode.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamp")
+                .IsRequired();
+            entity.HasIndex(inviteCode => inviteCode.CodeHash)
+                .IsUnique()
+                .HasDatabaseName("uq_invite_codes_code_hash");
         });
 
         modelBuilder.Entity<FoodItem>(entity =>
@@ -59,13 +95,16 @@ public sealed class PantryPalDbContext : DbContext
                 .HasColumnName("id")
                 .HasColumnType("bigint unsigned")
                 .ValueGeneratedOnAdd();
+            entity.Property(foodItem => foodItem.UserId)
+                .HasColumnName("user_id")
+                .HasColumnType("bigint unsigned");
             entity.Property(foodItem => foodItem.Name)
                 .HasColumnName("name")
                 .HasMaxLength(255)
                 .IsRequired();
-            entity.HasIndex(foodItem => foodItem.Name)
+            entity.HasIndex(foodItem => new { foodItem.UserId, foodItem.Name })
                 .IsUnique()
-                .HasDatabaseName("uq_food_items_name");
+                .HasDatabaseName("uq_food_items_user_name");
         });
 
         modelBuilder.Entity<FoodTag>(entity =>
@@ -76,13 +115,16 @@ public sealed class PantryPalDbContext : DbContext
                 .HasColumnName("id")
                 .HasColumnType("bigint unsigned")
                 .ValueGeneratedOnAdd();
+            entity.Property(tag => tag.UserId)
+                .HasColumnName("user_id")
+                .HasColumnType("bigint unsigned");
             entity.Property(tag => tag.Name)
                 .HasColumnName("name")
                 .HasMaxLength(100)
                 .IsRequired();
-            entity.HasIndex(tag => tag.Name)
+            entity.HasIndex(tag => new { tag.UserId, tag.Name })
                 .IsUnique()
-                .HasDatabaseName("uq_food_tags_name");
+                .HasDatabaseName("uq_food_tags_user_name");
         });
 
         modelBuilder.Entity<FoodItemTag>(entity =>
@@ -119,13 +161,16 @@ public sealed class PantryPalDbContext : DbContext
                 .HasColumnName("food_item_id")
                 .HasColumnType("bigint unsigned")
                 .IsRequired();
+            entity.Property(alias => alias.UserId)
+                .HasColumnName("user_id")
+                .HasColumnType("bigint unsigned");
             entity.Property(alias => alias.Alias)
                 .HasColumnName("alias")
                 .HasMaxLength(255)
                 .IsRequired();
-            entity.HasIndex(alias => alias.Alias)
+            entity.HasIndex(alias => new { alias.UserId, alias.Alias })
                 .IsUnique()
-                .HasDatabaseName("uq_food_item_aliases_alias");
+                .HasDatabaseName("uq_food_item_aliases_user_alias");
             entity.HasIndex(alias => alias.FoodItemId)
                 .HasDatabaseName("ix_food_item_aliases_food_item_id");
             entity.HasOne(alias => alias.FoodItem)
@@ -147,6 +192,9 @@ public sealed class PantryPalDbContext : DbContext
                 .HasColumnName("id")
                 .HasColumnType("bigint unsigned")
                 .ValueGeneratedOnAdd();
+            entity.Property(purchase => purchase.UserId)
+                .HasColumnName("user_id")
+                .HasColumnType("bigint unsigned");
             entity.Property(purchase => purchase.Hash)
                 .HasColumnName("hash")
                 .HasColumnType("char(64)")
@@ -180,9 +228,9 @@ public sealed class PantryPalDbContext : DbContext
                 .HasColumnType("timestamp")
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .ValueGeneratedOnAdd();
-            entity.HasIndex(purchase => new { purchase.Hash, purchase.LineNumber })
+            entity.HasIndex(purchase => new { purchase.UserId, purchase.Hash, purchase.LineNumber })
                 .IsUnique()
-                .HasDatabaseName("uq_purchases_hash_line");
+                .HasDatabaseName("uq_purchases_user_hash_line");
             entity.HasIndex(purchase => purchase.FoodItemId)
                 .HasDatabaseName("ix_purchases_food_item_id");
             entity.HasOne(purchase => purchase.FoodItem)

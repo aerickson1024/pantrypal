@@ -1,9 +1,9 @@
 import { DOCUMENT } from '@angular/common';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
-import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, OnDestroy, OnInit, signal } from '@angular/core';
+import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, OnDestroy, OnInit, signal, untracked } from '@angular/core';
 import { forkJoin, Subscription } from 'rxjs';
-import { ApiKeyService } from './api-key.service';
+import { AuthService } from './auth.service';
 
 interface ReceiptItem {
   'item name': string;
@@ -115,13 +115,25 @@ export class App implements OnDestroy, OnInit {
   private readonly http = inject(HttpClient);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
-  protected readonly apiKey = inject(ApiKeyService);
+  protected readonly auth = inject(AuthService);
   private nextRowId = 0;
   private readonly searchTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly searchRequests = new Map<number, Subscription>();
   private pantrySummaryRequest: Subscription | null = null;
   private fileDragDepth = 0;
-  protected readonly activePage = signal<'manualEntry' | 'receiptUploads' | 'pantryItems' | 'apiKey'>('pantryItems');
+  protected readonly activePage = signal<'manualEntry' | 'receiptUploads' | 'pantryItems' | 'account'>('pantryItems');
+  protected readonly authMode = signal<'signIn' | 'register'>('signIn');
+  protected readonly authForm = signal({ email: '', password: '', firstName: '', lastName: '', inviteCode: '' });
+  protected readonly authError = signal('');
+  protected readonly isAuthBusy = signal(false);
+  protected readonly accountFirstName = signal('');
+  protected readonly accountLastName = signal('');
+  protected readonly geminiKeyDraft = signal('');
+  protected readonly savedGeminiKey = signal('');
+  protected readonly showGeminiKey = signal(false);
+  protected readonly isAccountBusy = signal(false);
+  protected readonly accountMessage = signal('');
+  protected readonly accountError = signal('');
   protected readonly manualRows = signal<ManualRow[]>([]);
   protected readonly isSavingManualPurchases = signal(false);
   protected readonly manualPurchaseStatus = signal('');
@@ -227,10 +239,14 @@ export class App implements OnDestroy, OnInit {
 
   constructor() {
     effect(() => {
-      const page = this.activePage();
-      if (!this.apiKey.isValid() && (page === 'manualEntry' || page === 'receiptUploads')) {
-        this.activePage.set('apiKey');
-      }
+      const status = this.auth.status();
+      untracked(() => {
+        if (status === 'signedIn') {
+          this.onSignedIn();
+        } else if (status === 'signedOut') {
+          this.onSignedOut();
+        }
+      });
     });
   }
 
@@ -242,7 +258,15 @@ export class App implements OnDestroy, OnInit {
     this.showPantryFilters.set(true);
     this.pantryFromDate.set(`${yearMonth}-01`);
     this.pantryToDate.set(`${yearMonth}-${String(lastDayOfMonth).padStart(2, '0')}`);
-    this.loadPantrySummary();
+
+    const invite = new URLSearchParams(window.location.search).get('invite');
+    if (invite && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invite)) {
+      this.authMode.set('register');
+      this.authForm.update(form => ({ ...form, inviteCode: invite }));
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+
+    this.auth.loadSession();
   }
 
   ngOnDestroy(): void {
@@ -250,24 +274,185 @@ export class App implements OnDestroy, OnInit {
     this.pantrySummaryRequest?.unsubscribe();
   }
 
-  protected showPage(page: 'manualEntry' | 'receiptUploads' | 'pantryItems' | 'apiKey'): void {
+  protected showPage(page: 'manualEntry' | 'receiptUploads' | 'pantryItems'): void {
     this.activePage.set(page);
     if (page === 'pantryItems') {
       this.loadPantrySummary();
     }
   }
 
-  protected updateApiKey(event: Event): void {
-    this.apiKey.setKey((event.target as HTMLInputElement).value);
+  protected openAccount(): void {
+    this.accountFirstName.set(this.auth.profile()?.firstName ?? '');
+    this.accountLastName.set(this.auth.profile()?.lastName ?? '');
+    this.geminiKeyDraft.set('');
+    this.savedGeminiKey.set('');
+    this.showGeminiKey.set(false);
+    this.accountMessage.set('');
+    this.accountError.set('');
+    this.activePage.set('account');
+    this.loadSavedGeminiKey();
   }
 
-  private requireApiKey(): boolean {
-    if (this.apiKey.isValid()) {
-      return true;
+  private loadSavedGeminiKey(): void {
+    this.auth.getGeminiApiKey().subscribe({
+      next: response => this.savedGeminiKey.set(response.apiKey ?? ''),
+      error: (response: HttpErrorResponse) =>
+        this.accountError.set(this.problemMessage(response, 'The saved Gemini API key could not be loaded.')),
+    });
+  }
+
+  protected updateAuthField(field: 'email' | 'password' | 'firstName' | 'lastName' | 'inviteCode', event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.authForm.update(form => ({ ...form, [field]: value }));
+  }
+
+  protected setAuthMode(mode: 'signIn' | 'register'): void {
+    this.authMode.set(mode);
+    this.authError.set('');
+  }
+
+  protected submitAuth(event: Event): void {
+    event.preventDefault();
+    if (this.isAuthBusy()) {
+      return;
     }
 
-    this.showPage('apiKey');
-    return false;
+    const form = this.authForm();
+    const email = form.email.trim();
+    const request = this.authMode() === 'register'
+      ? this.auth.register({ email, password: form.password, firstName: form.firstName.trim(), lastName: form.lastName.trim(), inviteCode: form.inviteCode.trim() })
+      : this.auth.login({ email, password: form.password });
+
+    this.isAuthBusy.set(true);
+    this.authError.set('');
+    request.subscribe({
+      next: () => {
+        this.isAuthBusy.set(false);
+        this.authForm.set({ email: '', password: '', firstName: '', lastName: '', inviteCode: '' });
+      },
+      error: (response: HttpErrorResponse) => {
+        this.isAuthBusy.set(false);
+        this.authError.set(this.problemMessage(response, 'Could not sign in. Check your details and try again.'));
+      },
+    });
+  }
+
+  protected signOut(): void {
+    this.auth.logout();
+  }
+
+  protected updateAccountName(field: 'firstName' | 'lastName', event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    if (field === 'firstName') {
+      this.accountFirstName.set(value);
+    } else {
+      this.accountLastName.set(value);
+    }
+  }
+
+  protected saveAccountName(event: Event): void {
+    event.preventDefault();
+    const firstName = this.accountFirstName().trim();
+    const lastName = this.accountLastName().trim();
+    if (!firstName || !lastName || this.isAccountBusy()) {
+      return;
+    }
+
+    this.isAccountBusy.set(true);
+    this.accountMessage.set('');
+    this.accountError.set('');
+    this.auth.updateName(firstName, lastName).subscribe({
+      next: () => {
+        this.isAccountBusy.set(false);
+        this.accountMessage.set('Name saved.');
+      },
+      error: (response: HttpErrorResponse) => {
+        this.isAccountBusy.set(false);
+        this.accountError.set(this.problemMessage(response, 'The name could not be saved.'));
+      },
+    });
+  }
+
+  protected updateGeminiKeyDraft(event: Event): void {
+    this.geminiKeyDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  protected toggleGeminiKeyVisibility(): void {
+    this.showGeminiKey.update(visible => !visible);
+  }
+
+  protected saveGeminiApiKey(event: Event): void {
+    event.preventDefault();
+    const apiKey = this.geminiKeyDraft().trim();
+    if (!apiKey || this.isAccountBusy()) {
+      return;
+    }
+
+    this.isAccountBusy.set(true);
+    this.accountMessage.set('');
+    this.accountError.set('');
+    this.auth.saveGeminiApiKey(apiKey).subscribe({
+      next: () => {
+        this.isAccountBusy.set(false);
+        this.savedGeminiKey.set(apiKey);
+        this.geminiKeyDraft.set('');
+        this.accountMessage.set('Gemini API key saved.');
+      },
+      error: (response: HttpErrorResponse) => {
+        this.isAccountBusy.set(false);
+        this.accountError.set(this.problemMessage(response, 'The Gemini API key could not be saved.'));
+      },
+    });
+  }
+
+  protected removeGeminiApiKey(): void {
+    if (this.isAccountBusy()) {
+      return;
+    }
+
+    this.isAccountBusy.set(true);
+    this.accountMessage.set('');
+    this.accountError.set('');
+    this.auth.clearGeminiApiKey().subscribe({
+      next: () => {
+        this.savedGeminiKey.set('');
+        this.geminiKeyDraft.set('');
+        this.isAccountBusy.set(false);
+        this.accountMessage.set('Gemini API key removed.');
+      },
+      error: (response: HttpErrorResponse) => {
+        this.isAccountBusy.set(false);
+        this.accountError.set(this.problemMessage(response, 'The Gemini API key could not be removed.'));
+      },
+    });
+  }
+
+  private onSignedIn(): void {
+    this.accountFirstName.set(this.auth.profile()?.firstName ?? '');
+    this.accountLastName.set(this.auth.profile()?.lastName ?? '');
+    this.activePage.set('pantryItems');
+    this.loadPantrySummary();
+  }
+
+  private onSignedOut(): void {
+    this.pantrySummaryRequest?.unsubscribe();
+    this.pantrySummary.set(null);
+    this.pantryError.set('');
+    this.isLoadingPantry.set(false);
+    this.availableTags.set([]);
+    this.items.set([]);
+    this.manualRows.set([this.createManualRow()]);
+    this.activePage.set('pantryItems');
+    this.authError.set('');
+    this.savedGeminiKey.set('');
+    this.authForm.update(form => ({ ...form, password: '' }));
+    this.geminiKeyDraft.set('');
+    this.showGeminiKey.set(false);
+  }
+
+  private problemMessage(response: HttpErrorResponse, fallback: string): string {
+    const detail = (response.error as { detail?: unknown } | null)?.detail;
+    return typeof detail === 'string' ? detail : fallback;
   }
 
   protected formatQuantity(quantity: number): string {
@@ -359,7 +544,7 @@ export class App implements OnDestroy, OnInit {
   }
 
   protected startEditingTags(item: PantryItemSummary): void {
-    if (!this.requireApiKey()) {
+    if (!this.auth.isSignedIn()) {
       return;
     }
 
@@ -849,7 +1034,7 @@ export class App implements OnDestroy, OnInit {
     }
 
     event.preventDefault();
-    if (!this.requireApiKey() || this.isLoading() || this.isSavingPurchases()) {
+    if (!this.auth.isSignedIn() || this.isLoading() || this.isSavingPurchases()) {
       return;
     }
 

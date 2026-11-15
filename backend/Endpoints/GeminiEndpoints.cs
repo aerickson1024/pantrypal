@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using PantryPal.Api.Services;
@@ -21,7 +22,6 @@ public static class GeminiEndpoints
     public static IEndpointRouteBuilder MapGeminiEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/api/gemini/receipts/parse", ParseReceiptAsync)
-            .RequireApiKey()
             .WithName("ParseReceipt")
             .WithSummary("Extract grocery items from a receipt image")
             .WithDescription("Returns a SHA-256 hash of normalized visible receipt text and receipt items with quantity, purchase date, unit cost, alias-match status, and canonical food item IDs when available.")
@@ -38,11 +38,18 @@ public static class GeminiEndpoints
 
     private static async Task<IResult> ParseReceiptAsync(
         HttpRequest request,
+        ClaimsPrincipal user,
+        IAccountService accountService,
         IGeminiService geminiService,
         IReceiptItemNameResolver receiptItemNameResolver,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         if (!request.HasFormContentType)
         {
             return TypedResults.Problem(
@@ -77,7 +84,15 @@ public static class GeminiEndpoints
                 statusCode: StatusCodes.Status415UnsupportedMediaType);
         }
 
-        var geminiApiKey = request.Headers[ApiKeyEndpoints.HeaderName].ToString().Trim();
+        var geminiApiKey = await accountService.GetGeminiApiKeyAsync(userId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(geminiApiKey))
+        {
+            return TypedResults.Problem(
+                title: "A Gemini API key is required.",
+                detail: "Save your Gemini API key on the Account page, then try again.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var logger = loggerFactory.CreateLogger(nameof(GeminiEndpoints));
         try
         {
@@ -91,7 +106,7 @@ public static class GeminiEndpoints
                 image.ContentType,
                 geminiApiKey,
                 cancellationToken);
-            var items = await receiptItemNameResolver.ResolveAliasesAsync(extractedItems, cancellationToken);
+            var items = await receiptItemNameResolver.ResolveAliasesAsync(userId, extractedItems, cancellationToken);
 
             var responseItems = items
                 .Select(result => new ReceiptResponseItem(

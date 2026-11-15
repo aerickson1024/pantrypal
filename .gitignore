@@ -28,6 +28,7 @@
 
 # Backend build, test, and publish output
 /backend/wwwroot/
+/backend/keys/
 /backend/**/bin/
 /backend/**/obj/
 /backend/publish/

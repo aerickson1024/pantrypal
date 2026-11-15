@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PantryPal.Api.Services;
@@ -19,7 +20,6 @@ public static class FoodTagEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPut("/api/food-items/{foodItemId}/tags", ReplaceFoodItemTagsAsync)
-            .RequireApiKey()
             .WithName("ReplaceFoodItemTags")
             .WithSummary("Replace all tags assigned to a food item")
             .Produces<FoodItemTagsResponse>(StatusCodes.Status200OK)
@@ -32,13 +32,19 @@ public static class FoodTagEndpoints
     }
 
     private static async Task<IResult> GetTagsAsync(
+        ClaimsPrincipal user,
         IFoodTagService foodTagService,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         try
         {
-            return TypedResults.Ok(await foodTagService.GetAssignedTagsAsync(cancellationToken));
+            return TypedResults.Ok(await foodTagService.GetAssignedTagsAsync(userId, cancellationToken));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -57,10 +63,16 @@ public static class FoodTagEndpoints
     private static async Task<IResult> ReplaceFoodItemTagsAsync(
         ulong foodItemId,
         UpdateFoodItemTagsRequest request,
+        ClaimsPrincipal user,
         IFoodTagService foodTagService,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         if (request.Tags is null || request.Tags.Any(tag =>
                 string.IsNullOrWhiteSpace(tag) || tag.Trim().Length > MaxTagNameLength))
         {
@@ -77,7 +89,7 @@ public static class FoodTagEndpoints
 
         try
         {
-            var result = await foodTagService.ReplaceFoodItemTagsAsync(foodItemId, tagNames, cancellationToken);
+            var result = await foodTagService.ReplaceFoodItemTagsAsync(userId, foodItemId, tagNames, cancellationToken);
             return result is null
                 ? TypedResults.Problem(
                     title: "Food item not found.",

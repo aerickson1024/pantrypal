@@ -6,28 +6,29 @@ namespace PantryPal.Api.Services;
 
 public sealed class FoodTagService(PantryPalDbContext dbContext) : IFoodTagService
 {
-    public async Task<IReadOnlyList<FoodTagSummary>> GetAssignedTagsAsync(CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<FoodTagSummary>> GetAssignedTagsAsync(ulong userId, CancellationToken cancellationToken) =>
         await dbContext.FoodTags
             .AsNoTracking()
-            .Where(tag => tag.FoodItems.Any())
+            .Where(tag => tag.UserId == userId && tag.FoodItems.Any())
             .OrderByDescending(tag => tag.FoodItems.Count())
             .ThenBy(tag => tag.Name)
             .Select(tag => new FoodTagSummary(tag.Name, tag.FoodItems.Count()))
             .ToArrayAsync(cancellationToken);
 
     public async Task<FoodItemTagsResponse?> ReplaceFoodItemTagsAsync(
+        ulong userId,
         ulong foodItemId,
         IReadOnlyList<string> tagNames,
         CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        if (!await dbContext.FoodItems.AnyAsync(item => item.Id == foodItemId, cancellationToken))
+        if (!await dbContext.FoodItems.AnyAsync(item => item.Id == foodItemId && item.UserId == userId, cancellationToken))
         {
             return null;
         }
 
         var tags = await dbContext.FoodTags
-            .Where(tag => tagNames.Contains(tag.Name))
+            .Where(tag => tag.UserId == userId && tagNames.Contains(tag.Name))
             .ToListAsync(cancellationToken);
         var tagsByName = tags.ToDictionary(tag => tag.Name, StringComparer.OrdinalIgnoreCase);
         foreach (var tagName in tagNames)
@@ -37,7 +38,7 @@ public sealed class FoodTagService(PantryPalDbContext dbContext) : IFoodTagServi
                 continue;
             }
 
-            var tag = new FoodTag { Name = tagName };
+            var tag = new FoodTag { UserId = userId, Name = tagName };
             dbContext.FoodTags.Add(tag);
             tags.Add(tag);
             tagsByName.Add(tagName, tag);
@@ -64,13 +65,13 @@ public sealed class FoodTagService(PantryPalDbContext dbContext) : IFoodTagServi
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var unusedTags = await dbContext.FoodTags
-            .Where(tag => !tag.FoodItems.Any())
+            .Where(tag => tag.UserId == userId && !tag.FoodItems.Any())
             .ToArrayAsync(cancellationToken);
         dbContext.FoodTags.RemoveRange(unusedTags);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        var availableTags = await GetAssignedTagsAsync(cancellationToken);
+        var availableTags = await GetAssignedTagsAsync(userId, cancellationToken);
 
         return new FoodItemTagsResponse(
             foodItemId.ToString(System.Globalization.CultureInfo.InvariantCulture),

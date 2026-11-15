@@ -4,6 +4,8 @@ public sealed class Purchase
 {
     public ulong Id { get; set; }
 
+    public ulong UserId { get; set; }
+
     public string Hash { get; set; } = string.Empty;
 
     public uint LineNumber { get; set; }

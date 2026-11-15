@@ -3,6 +3,7 @@ namespace PantryPal.Api.Services;
 public interface IReceiptItemNameResolver
 {
     Task<IReadOnlyList<ResolvedReceiptItem>> ResolveAliasesAsync(
+        ulong userId,
         IReadOnlyList<ReceiptItem> items,
         CancellationToken cancellationToken);
 }
