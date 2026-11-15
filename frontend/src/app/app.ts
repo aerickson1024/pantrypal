@@ -184,7 +184,9 @@ export class App implements OnDestroy, OnInit {
     });
 
     if (!sort) {
-      return items;
+      return [...items].sort((a, b) =>
+        Number(a.tags.length > 0) - Number(b.tags.length > 0)
+        || a.itemName.localeCompare(b.itemName, undefined, { sensitivity: 'base' }));
     }
 
     const factor = sort.direction === 'asc' ? 1 : -1;
