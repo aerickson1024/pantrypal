@@ -1,5 +1,18 @@
 @backend_HostAddress = http://localhost:5044
-@apiKey = replace-with-gemini-api-key
+@email = you@example.com
+@password = replace-with-your-password
+
+### Sign in. Run this first; the requests below reuse its session cookie.
+# @name login
+POST {{backend_HostAddress}}/api/account/login
+Content-Type: application/json
+
+{
+	"email": "{{email}}",
+	"password": "{{password}}"
+}
+
+###
 
 GET {{backend_HostAddress}}/api/health
 Accept: application/json
@@ -13,26 +26,30 @@ Accept: application/json
 
 GET {{backend_HostAddress}}/api/food-items/search?q=appl
 Accept: application/json
+Cookie: {{login.response.headers.Set-Cookie}}
 
 ###
 
 GET {{backend_HostAddress}}/api/purchases/summary
 Accept: application/json
+Cookie: {{login.response.headers.Set-Cookie}}
 
 ###
 
 GET {{backend_HostAddress}}/api/purchases/summary?fromDate=2026-01-01&toDate=2026-01-31
 Accept: application/json
+Cookie: {{login.response.headers.Set-Cookie}}
 
 ###
 
 GET {{backend_HostAddress}}/api/tags
 Accept: application/json
+Cookie: {{login.response.headers.Set-Cookie}}
 
 ### Replace all tags for a food item
 PUT {{backend_HostAddress}}/api/food-items/1/tags
 Content-Type: application/json
-X-Api-Key: {{apiKey}}
+Cookie: {{login.response.headers.Set-Cookie}}
 
 {
 	"tags": ["Drinks", "Pop"]
@@ -40,5 +57,6 @@ X-Api-Key: {{apiKey}}
 
 ###
 
-POST {{backend_HostAddress}}/api/auth/verify-key
-X-Api-Key: {{apiKey}}
+GET {{backend_HostAddress}}/api/account/me
+Accept: application/json
+Cookie: {{login.response.headers.Set-Cookie}}
