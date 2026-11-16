@@ -16,6 +16,7 @@ public sealed class AccountService(
     private const int PasswordIterations = 210000;
     private const int PasswordSaltSize = 16;
     private const int PasswordKeySize = 32;
+    private static readonly string DummyPasswordHash = HashPassword(Guid.NewGuid().ToString());
 
     private readonly IDataProtector geminiKeyProtector =
         dataProtectionProvider.CreateProtector("PantryPal.GeminiApiKey.v1");
@@ -43,6 +44,9 @@ public sealed class AccountService(
             return new RegisterResult(RegisterOutcome.InvalidInviteCode, null);
         }
 
+        // Hash before the email check so taken and free emails take the same time.
+        var passwordHash = HashPassword(password);
+
         if (await dbContext.Users.AnyAsync(user => user.Email == email, cancellationToken))
         {
             return new RegisterResult(RegisterOutcome.EmailTaken, null);
@@ -53,7 +57,7 @@ public sealed class AccountService(
             Email = email,
             FirstName = firstName,
             LastName = lastName,
-            PasswordHash = HashPassword(password),
+            PasswordHash = passwordHash,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -93,6 +97,8 @@ public sealed class AccountService(
             .FirstOrDefaultAsync(candidate => candidate.Email == email, cancellationToken);
         if (user is null)
         {
+            // Hash anyway so response time does not reveal whether the email exists.
+            VerifyPassword(password, DummyPasswordHash);
             return null;
         }
 

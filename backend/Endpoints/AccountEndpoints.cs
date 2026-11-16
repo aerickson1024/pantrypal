@@ -29,8 +29,7 @@ public static class AccountEndpoints
             .WithName("Register")
             .WithSummary("Create an account with an invite code and sign in")
             .Produces<AccountProfile>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         group.MapPost("/login", LoginAsync)
             .AllowAnonymous()
@@ -38,7 +37,8 @@ public static class AccountEndpoints
             .WithName("Login")
             .WithSummary("Sign in with email and password")
             .Produces<AccountProfile>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         group.MapPost("/logout", LogoutAsync)
             .WithName("Logout")
@@ -125,10 +125,7 @@ public static class AccountEndpoints
         switch (result.Outcome)
         {
             case RegisterOutcome.EmailTaken:
-                return TypedResults.Problem(
-                    title: "Account already exists.",
-                    detail: "An account with this email already exists.",
-                    statusCode: StatusCodes.Status409Conflict);
+                return InvalidRequest("Could not create the account. Check your details, or sign in if you already have one.");
             case RegisterOutcome.InvalidInviteCode:
                 return InvalidRequest("The invite code is not valid or has already been used.");
         }
@@ -142,6 +139,7 @@ public static class AccountEndpoints
         LoginRequest? request,
         HttpContext httpContext,
         IAccountService accountService,
+        LoginThrottle loginThrottle,
         CancellationToken cancellationToken)
     {
         var email = NormalizeEmail(request?.Email);
@@ -151,15 +149,25 @@ public static class AccountEndpoints
             return InvalidRequest("Enter your email and password.");
         }
 
+        if (loginThrottle.IsLocked(email))
+        {
+            return TypedResults.Problem(
+                title: "Too many sign-in attempts.",
+                detail: "Wait 15 minutes, then try again.",
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
         var userId = await accountService.VerifyCredentialsAsync(email, password, cancellationToken);
         if (userId is null)
         {
+            loginThrottle.RecordFailure(email);
             return TypedResults.Problem(
                 title: "Sign-in failed.",
                 detail: "The email or password is incorrect.",
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
+        loginThrottle.Reset(email);
         await SignInAsync(httpContext, userId.Value);
         var profile = await accountService.GetProfileAsync(userId.Value, cancellationToken);
         return TypedResults.Ok(profile);

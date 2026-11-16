@@ -1,7 +1,9 @@
+using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using PantryPal.Api.Endpoints;
@@ -15,7 +17,14 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(1));
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Only the same-host reverse proxy may set forwarded headers; LAN ranges are not trusted.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(IPAddress.Loopback);
+    options.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -30,6 +39,11 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<LoginThrottle>();
+// Cap the whole multipart body so oversized uploads are rejected before being buffered. Allows 1 MB for form overhead.
+builder.Services.Configure<FormOptions>(options =>
+    options.MultipartBodyLengthLimit = GeminiEndpoints.MaxReceiptImageSize + 1024 * 1024);
 
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(
@@ -80,13 +94,16 @@ builder.Services.AddDbContext<PantryPalDbContext>(options =>
     }
 });
 
-builder.Services.AddCors(options =>
+if (builder.Environment.IsDevelopment())
 {
-    options.AddDefaultPolicy(policy =>
-        policy.WithOrigins("http://localhost:4200")
-            .AllowAnyHeader()
-            .AllowAnyMethod());
-});
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+            policy.WithOrigins("http://localhost:4200")
+                .AllowAnyHeader()
+                .AllowAnyMethod());
+    });
+}
 
 var app = builder.Build();
 
@@ -113,6 +130,17 @@ if (args is ["create-invite", ..])
     return 0;
 }
 
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers["Content-Security-Policy"] =
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+    await next();
+});
+
 app.UseForwardedHeaders();
 app.UseHsts();
 app.UseExceptionHandler();
@@ -120,7 +148,10 @@ app.UseStatusCodePages();
 // Static files come before authorization so the public bundle is not gated by the fallback policy.
 app.UseDefaultFiles();
 app.UseStaticFiles();
-app.UseCors();
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors();
+}
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

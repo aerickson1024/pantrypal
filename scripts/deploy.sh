@@ -12,19 +12,11 @@ REMOTE_OWNER="${REMOTE_OWNER:-pantrypal:pantrypal}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy"
 
-read -r -s -p "Password for $REMOTE (used for SSH and sudo): " DEPLOY_PW
-echo
-export DEPLOY_PW
-
-# ssh calls this helper for its password prompts instead of asking again.
-ASKPASS_SCRIPT="$(mktemp)"
-trap 'rm -f "$ASKPASS_SCRIPT"' EXIT
-cat > "$ASKPASS_SCRIPT" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$DEPLOY_PW"
-EOF
-chmod +x "$ASKPASS_SCRIPT"
-export SSH_ASKPASS="$ASKPASS_SCRIPT" SSH_ASKPASS_REQUIRE=force
+# Key-based SSH only: BatchMode fails fast instead of prompting for a password.
+SSH_OPTS=(-o BatchMode=yes)
+if [[ -n "${SSH_KEY:-}" ]]; then
+  SSH_OPTS+=(-i "$SSH_KEY")
+fi
 
 echo "Building frontend..."
 (cd "$REPO_ROOT/frontend" && npm run build)
@@ -34,14 +26,12 @@ rm -rf "$DEPLOY_DIR"
 dotnet publish "$REPO_ROOT/backend/backend.csproj" -c Release -o "$DEPLOY_DIR"
 
 echo "Uploading to $REMOTE:$REMOTE_STAGE..."
-ssh "$REMOTE" "rm -rf '$REMOTE_STAGE' && mkdir -p '$REMOTE_STAGE'"
-tar -C "$DEPLOY_DIR" -cf - . | ssh "$REMOTE" "tar -C '$REMOTE_STAGE' -xf -"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "rm -rf '$REMOTE_STAGE' && mkdir -p '$REMOTE_STAGE'"
+tar -C "$DEPLOY_DIR" -cf - . | ssh "${SSH_OPTS[@]}" "$REMOTE" "tar -C '$REMOTE_STAGE' -xf -"
 
-# The password is piped to sudo -S; the remote commands follow on the same stdin for bash -s.
+# sudo -n never prompts; the deploy user needs a NOPASSWD sudoers rule on the server.
 echo "Installing into $REMOTE_APP and restarting $SERVICE..."
-{
-  printf '%s\n' "$DEPLOY_PW"
-  cat <<EOF
+ssh "${SSH_OPTS[@]}" "$REMOTE" "sudo -n bash -s" <<EOF
 set -e
 systemctl stop '$SERVICE'
 rm -rf '${REMOTE_APP:?}'/*
@@ -50,7 +40,5 @@ chown -R '$REMOTE_OWNER' '$REMOTE_APP'
 systemctl start '$SERVICE'
 systemctl is-active '$SERVICE'
 EOF
-} | ssh "$REMOTE" "sudo -S -p '' bash -s"
-unset DEPLOY_PW
 
 echo "Deploy finished."
