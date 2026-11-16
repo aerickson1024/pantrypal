@@ -175,6 +175,99 @@ header h1 {
 	color: var(--danger-foreground) !important;
 }
 
+.account-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
+.account-icon {
+	width: 1.1rem;
+	height: 1.1rem;
+	flex: none;
+}
+
+.welcome {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+	gap: 1.5rem;
+	align-items: start;
+	margin-top: 1rem;
+}
+
+.welcome-intro {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.welcome-intro h2 {
+	margin: 0;
+	font-size: 1.6rem;
+}
+
+.welcome-intro p {
+	margin: 0;
+	color: var(--muted);
+}
+
+.welcome-features {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	margin: 0;
+	padding-left: 1.25rem;
+	color: var(--muted);
+}
+
+.auth-panel {
+	margin-top: 0;
+}
+
+.auth-tabs {
+	display: flex;
+	justify-content: center;
+	gap: 0.5rem;
+	padding-bottom: 1.25rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.account-panel {
+	max-width: 640px;
+	margin-inline: auto;
+}
+
+.account-name-row {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+}
+
+.account-name-field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.account-form {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.account-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+@media (max-width: 760px) {
+	.welcome {
+		grid-template-columns: 1fr;
+	}
+}
+
 .pantry-page {
 	flex: 1;
 	display: flex;
@@ -1224,6 +1317,20 @@ button:focus-visible {
 
 .receipt-item-editor {
 	align-items: center;
+}
+
+.account-actions .sign-out-button {
+	margin-top: 50px;
+	margin-inline: auto;
+	border: 1px solid var(--danger-foreground);
+	background: transparent;
+	color: var(--danger-foreground);
+}
+
+.account-actions .sign-out-button:hover:not(:disabled) {
+	border-color: var(--danger-hover);
+	background: transparent;
+	color: var(--danger-hover);
 }
 
 .receipt-item-editor .item-action {

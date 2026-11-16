@@ -10,6 +10,7 @@ public sealed class FoodItemSearchService(PantryPalDbContext dbContext)
     private const double MinimumSimilarity = 0.7;
 
     public async Task<IReadOnlyList<FoodItemSearchResult>> SearchAsync(
+        ulong userId,
         string query,
         CancellationToken cancellationToken)
     {
@@ -21,6 +22,7 @@ public sealed class FoodItemSearchService(PantryPalDbContext dbContext)
 
         var foodItems = await dbContext.FoodItems
             .AsNoTracking()
+            .Where(foodItem => foodItem.UserId == userId)
             .Select(foodItem => new { foodItem.Id, foodItem.Name })
             .ToListAsync(cancellationToken);
 

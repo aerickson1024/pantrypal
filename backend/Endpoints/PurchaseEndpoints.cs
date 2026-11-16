@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PantryPal.Api.Data;
@@ -24,7 +25,6 @@ public static class PurchaseEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPost("/api/purchases", SavePurchasesAsync)
-            .RequireApiKey()
             .WithName("SavePurchases")
             .WithSummary("Save all lines from a parsed receipt")
             .Produces<PurchaseSaveResponse>(StatusCodes.Status200OK)
@@ -39,10 +39,16 @@ public static class PurchaseEndpoints
     private static async Task<IResult> GetPantrySummaryAsync(
         DateOnly? fromDate,
         DateOnly? toDate,
+        ClaimsPrincipal user,
         IPantrySummaryService pantrySummaryService,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         if (fromDate is { } startDate && toDate is { } endDate && startDate > endDate)
         {
             return TypedResults.Problem(
@@ -53,7 +59,7 @@ public static class PurchaseEndpoints
 
         try
         {
-            return TypedResults.Ok(await pantrySummaryService.GetSummaryAsync(fromDate, toDate, cancellationToken));
+            return TypedResults.Ok(await pantrySummaryService.GetSummaryAsync(userId, fromDate, toDate, cancellationToken));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -72,10 +78,16 @@ public static class PurchaseEndpoints
 
     private static async Task<IResult> SavePurchasesAsync(
         PurchaseSaveRequest request,
+        ClaimsPrincipal user,
         PantryPalDbContext dbContext,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         if (!IsValidHash(request.Hash) || request.Items is null ||
             request.Items.Count == 0 || request.Items.Count > MaxLinesPerReceipt)
         {
@@ -110,7 +122,7 @@ public static class PurchaseEndpoints
 
             var existingPurchases = await dbContext.Purchases
                 .AsNoTracking()
-                .Where(purchase => purchase.Hash == hash)
+                .Where(purchase => purchase.UserId == userId && purchase.Hash == hash)
                 .OrderBy(purchase => purchase.LineNumber)
                 .ToListAsync(cancellationToken);
 
@@ -123,7 +135,7 @@ public static class PurchaseEndpoints
 
             var foodItemIds = lines.Select(line => line.FoodItemId).Distinct().ToArray();
             var existingFoodItemIds = await dbContext.FoodItems
-                .Where(foodItem => foodItemIds.Contains(foodItem.Id))
+                .Where(foodItem => foodItem.UserId == userId && foodItemIds.Contains(foodItem.Id))
                 .Select(foodItem => foodItem.Id)
                 .ToListAsync(cancellationToken);
 
@@ -140,6 +152,7 @@ public static class PurchaseEndpoints
                 var line = lines[index];
                 dbContext.Purchases.Add(new Purchase
                 {
+                    UserId = userId,
                     Hash = hash,
                     LineNumber = checked((uint)(index + 1)),
                     FoodItemId = line.FoodItemId,
@@ -167,7 +180,7 @@ public static class PurchaseEndpoints
             {
                 var existingPurchases = await dbContext.Purchases
                     .AsNoTracking()
-                    .Where(purchase => purchase.Hash == hash)
+                    .Where(purchase => purchase.UserId == userId && purchase.Hash == hash)
                     .OrderBy(purchase => purchase.LineNumber)
                     .ToListAsync(cancellationToken);
 

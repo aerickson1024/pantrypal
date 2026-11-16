@@ -8,6 +8,7 @@ public static class DatabaseHealthEndpoints
     public static IEndpointRouteBuilder MapDatabaseHealthEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/health/database", CheckDatabaseAsync)
+            .AllowAnonymous()
             .WithName("DatabaseHealthCheck")
             .WithSummary("Check MySQL connectivity")
             .Produces(StatusCodes.Status200OK)

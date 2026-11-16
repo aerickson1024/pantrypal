@@ -7,6 +7,7 @@ namespace PantryPal.Api.Services;
 public sealed class ReceiptItemNameResolver(PantryPalDbContext dbContext) : IReceiptItemNameResolver
 {
     public async Task<IReadOnlyList<ResolvedReceiptItem>> ResolveAliasesAsync(
+        ulong userId,
         IReadOnlyList<ReceiptItem> items,
         CancellationToken cancellationToken)
     {
@@ -23,7 +24,7 @@ public sealed class ReceiptItemNameResolver(PantryPalDbContext dbContext) : IRec
         try
         {
             var matches = await dbContext.FoodItemAliases
-                .Where(alias => normalizedNames.Contains(alias.Alias))
+                .Where(alias => alias.UserId == userId && normalizedNames.Contains(alias.Alias))
                 .Select(alias => new { alias.Alias, alias.FoodItemId, FoodName = alias.FoodItem.Name })
                 .ToListAsync(cancellationToken);
 

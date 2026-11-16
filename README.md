@@ -7,31 +7,54 @@ A minimal Angular frontend and ASP.NET Core API with Gemini-powered grocery rece
 - Node.js and npm
 - .NET 10 SDK
 - MySQL 8.0 or later
-- A Gemini API key
+- A Gemini API key (each user saves their own on the **Account** page)
 
-## Configure API key access
+## Configure accounts
 
-Writes (receipt parsing, manual entry, purchase saves, and tag edits) require a Gemini API key sent by the browser in the `X-Api-Key` header. The key is entered on the **API Key** page and kept in that browser's `localStorage`. The Gemini key is not stored in configuration; the backend uses the key it receives for each receipt request.
+Accounts use cookie sign-in. Passwords are hashed with PBKDF2-SHA256 before they are stored. Each user's Gemini API key is encrypted with ASP.NET Data Protection and stored in the `users` table. The browser never stores the key. The Gemini key is not stored in configuration.
 
-The backend stores only a SHA-256 hash of each accepted key. Create the table and add your key from the MySQL client:
+New accounts require an invite code. The database holds only a SHA-256 hash of each code. Create the tables from the MySQL client:
 
 ```sql
-CREATE TABLE api_keys (
+CREATE TABLE users (
 	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-	key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-	label VARCHAR(100) CHARACTER SET utf8mb4 NULL,
-	is_active TINYINT(1) NOT NULL DEFAULT 1,
+	email VARCHAR(255) CHARACTER SET utf8mb4 NOT NULL,
+	first_name VARCHAR(100) CHARACTER SET utf8mb4 NOT NULL,
+	last_name VARCHAR(100) CHARACTER SET utf8mb4 NOT NULL,
+	password_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+	gemini_api_key_protected TEXT NULL,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	PRIMARY KEY (id),
-	CONSTRAINT uq_api_keys_key_hash UNIQUE (key_hash)
+	CONSTRAINT uq_users_email UNIQUE (email)
 ) ENGINE=InnoDB;
 
-INSERT INTO api_keys (key_hash, label) VALUES (SHA2('<your Gemini API key>', 256), 'primary');
+CREATE TABLE invite_codes (
+	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	code_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+	used_by_user_id BIGINT UNSIGNED NULL,
+	used_at TIMESTAMP NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_invite_codes_code_hash UNIQUE (code_hash)
+) ENGINE=InnoDB;
+
 ```
 
-Revoke a key with `UPDATE api_keys SET is_active = 0 WHERE label = 'primary';`. Changes apply on the next request; no restart is needed. Avoid leaving the key in shell history after running the insert.
+Create an invite code with the backend command. It prints a random version 4 GUID once and stores only its hash:
 
-Read-only endpoints (pantry summary, food search, tags) stay open. `POST /api/auth/verify-key` is rate limited to 10 attempts per minute per IP.
+```sh
+dotnet run --project backend -- create-invite
+```
+
+Each invite code can be used once. Send the GUID to the new user, or share `http://localhost:4200/?invite=<guid>`, which opens the Create account form with the code filled in. The API accepts any GUID spelling and hashes its lowercase hyphenated form.
+
+To insert a code manually, use a random GUID and run `INSERT INTO invite_codes (code_hash) VALUES (LOWER(SHA2(LOWER('<guid>'), 256)));`. Do not use MySQL's `UUID()`, which is time-based rather than random.
+
+Session cookies are named `PantryPal.Auth`, are HttpOnly, and use SameSite Strict. They last 14 days and slide forward on use. Sign-in attempts are rate limited to 10 per minute per IP.
+
+Data Protection keys are written to `DataProtection:KeysPath` if set, otherwise to `backend/keys/`. Keep this folder across restarts. If it is lost, saved Gemini keys cannot be decrypted and users must enter them again. The folder is excluded from git.
+
+All endpoints except health, login, registration, and OpenAPI require a signed-in session.
 ## Configure local MySQL
 
 Create the database and MySQL user locally, then store the connection string in .NET User Secrets:
@@ -82,7 +105,7 @@ The API serves the built Angular app, so one process hosts both the UI (at `/`) 
 
 3. Run the published app on the host. Unknown non-API paths fall back to `index.html` so client-side routes work.
 
-On the host, provide the MySQL connection string (`ConnectionStrings__PantryPal`) as an environment variable or the host's secret store instead of `appsettings.json`, create the `api_keys` table and key row as described above, and serve over HTTPS. The development CORS policy for `http://localhost:4200` is not needed when the app is served from one origin.
+On the host, provide the MySQL connection string (`ConnectionStrings__PantryPal`) as an environment variable or the host's secret store instead of `appsettings.json`, create the `users` and `invite_codes` tables and an invite code as described above, persist the Data Protection keys folder, and serve over HTTPS. The development CORS policy for `http://localhost:4200` is not needed when the app is served from one origin.
 
 The receipt API accepts `POST http://localhost:5044/api/gemini/receipts/parse` as `multipart/form-data` with the image in the `image` field. It returns a top-level `hash` and an `items` array; each item has these JSON properties:
 
@@ -151,3 +174,47 @@ CREATE TABLE food_item_tags (
 ```
 
 `GET http://localhost:5044/api/tags` lists tags currently assigned to food items. `PUT http://localhost:5044/api/food-items/{foodItemId}/tags` replaces that food item's full tag set; for example, send `{ "tags": ["Drinks", "Pop"] }`. Send an empty array to remove all tags from an item. Tag names are trimmed, limited to 100 characters, and deduplicated case-insensitively. Tags left with no food-item associations are deleted. The Pantry Items view displays and edits tags without changing purchase quantities or spending totals.
+
+## Per-user data migration
+
+Run this once on an existing database to scope food items, tags, aliases, and purchases to a user. Back up the database first. Existing rows are assigned to user `1`. Confirm the existing unique index names with `SHOW INDEX FROM <table>` and adjust the `DROP INDEX` names if they differ.
+
+```sql
+ALTER TABLE food_items
+	ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id;
+UPDATE food_items SET user_id = 1;
+ALTER TABLE food_items
+	MODIFY user_id BIGINT UNSIGNED NOT NULL,
+	DROP INDEX uq_food_items_name,
+	ADD UNIQUE INDEX uq_food_items_user_name (user_id, name),
+	ADD CONSTRAINT fk_food_items_users FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+
+ALTER TABLE food_tags
+	ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id;
+UPDATE food_tags SET user_id = 1;
+ALTER TABLE food_tags
+	MODIFY user_id BIGINT UNSIGNED NOT NULL,
+	DROP INDEX uq_food_tags_name,
+	ADD UNIQUE INDEX uq_food_tags_user_name (user_id, name),
+	ADD CONSTRAINT fk_food_tags_users FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+
+ALTER TABLE food_item_aliases
+	ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id;
+UPDATE food_item_aliases SET user_id = 1;
+ALTER TABLE food_item_aliases
+	MODIFY user_id BIGINT UNSIGNED NOT NULL,
+	DROP INDEX uq_food_item_aliases_alias,
+	ADD UNIQUE INDEX uq_food_item_aliases_user_alias (user_id, alias),
+	ADD CONSTRAINT fk_food_item_aliases_users FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+
+ALTER TABLE purchases
+	ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id;
+UPDATE purchases SET user_id = 1;
+ALTER TABLE purchases
+	MODIFY user_id BIGINT UNSIGNED NOT NULL,
+	DROP INDEX uq_purchases_hash_line,
+	ADD UNIQUE INDEX uq_purchases_user_hash_line (user_id, hash, line_number),
+	ADD CONSTRAINT fk_purchases_users FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+```
+
+After this migration, each user has a separate pantry, tag set, alias set, and purchase history. Receipts uploaded by one user do not match another user's aliases or block their saves.

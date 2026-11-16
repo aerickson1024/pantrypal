@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PantryPal.Api.Data;
@@ -19,7 +20,6 @@ public static class FoodItemEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPost("/api/food-items/aliases", SaveAliasAsync)
-            .RequireApiKey()
             .WithName("SaveFoodItemAlias")
             .WithSummary("Save an edited canonical food name and its receipt alias")
             .Produces<FoodItemAliasResponse>(StatusCodes.Status200OK)
@@ -28,7 +28,6 @@ public static class FoodItemEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapPost("/api/food-items", CreateFoodItemAsync)
-            .RequireApiKey()
             .WithName("CreateFoodItem")
             .WithSummary("Find or create a canonical food item by name")
             .Produces<FoodItemSearchResponse>(StatusCodes.Status200OK)
@@ -40,10 +39,16 @@ public static class FoodItemEndpoints
 
     private static async Task<IResult> SearchFoodItemsAsync(
         string? q,
+        ClaimsPrincipal user,
         FoodItemSearchService searchService,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         var query = q?.Trim();
         if (query?.Length > 255)
         {
@@ -55,7 +60,7 @@ public static class FoodItemEndpoints
 
         try
         {
-            var matches = await searchService.SearchAsync(query ?? string.Empty, cancellationToken);
+            var matches = await searchService.SearchAsync(userId, query ?? string.Empty, cancellationToken);
             return TypedResults.Ok(matches
                 .Select(match => new FoodItemSearchResponse(match.CanonicalName, match.FoodItemId))
                 .ToArray());
@@ -77,10 +82,16 @@ public static class FoodItemEndpoints
 
     private static async Task<IResult> SaveAliasAsync(
         FoodItemAliasRequest request,
+        ClaimsPrincipal user,
         PantryPalDbContext dbContext,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         var canonicalName = request.CanonicalName?.Trim();
         if (string.IsNullOrWhiteSpace(request.OriginalName) || request.OriginalName.Length > 255 ||
             string.IsNullOrWhiteSpace(canonicalName) || canonicalName.Length > 255)
@@ -97,7 +108,7 @@ public static class FoodItemEndpoints
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             var existingAlias = await dbContext.FoodItemAliases
                 .Include(alias => alias.FoodItem)
-                .SingleOrDefaultAsync(alias => alias.Alias == request.OriginalName, cancellationToken);
+                .SingleOrDefaultAsync(alias => alias.UserId == userId && alias.Alias == request.OriginalName, cancellationToken);
 
             if (existingAlias is not null)
             {
@@ -113,16 +124,17 @@ public static class FoodItemEndpoints
             }
 
             var foodItem = await dbContext.FoodItems
-                .SingleOrDefaultAsync(item => item.Name == canonicalName, cancellationToken);
+                .SingleOrDefaultAsync(item => item.UserId == userId && item.Name == canonicalName, cancellationToken);
             if (foodItem is null)
             {
-                foodItem = new FoodItem { Name = canonicalName };
+                foodItem = new FoodItem { UserId = userId, Name = canonicalName };
                 dbContext.FoodItems.Add(foodItem);
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
 
             dbContext.FoodItemAliases.Add(new FoodItemAlias
             {
+                UserId = userId,
                 Alias = request.OriginalName,
                 FoodItemId = foodItem.Id
             });
@@ -144,7 +156,7 @@ public static class FoodItemEndpoints
             {
                 var existingAlias = await dbContext.FoodItemAliases
                     .Include(alias => alias.FoodItem)
-                    .SingleOrDefaultAsync(alias => alias.Alias == request.OriginalName, cancellationToken);
+                    .SingleOrDefaultAsync(alias => alias.UserId == userId && alias.Alias == request.OriginalName, cancellationToken);
 
                 if (existingAlias is not null)
                 {
@@ -175,10 +187,16 @@ public static class FoodItemEndpoints
 
     private static async Task<IResult> CreateFoodItemAsync(
         FoodItemCreateRequest request,
+        ClaimsPrincipal user,
         PantryPalDbContext dbContext,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (user.GetUserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         var name = request.Name?.Trim();
         if (string.IsNullOrWhiteSpace(name) || name.Length > 255)
         {
@@ -192,10 +210,10 @@ public static class FoodItemEndpoints
         try
         {
             var foodItem = await dbContext.FoodItems
-                .SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
+                .SingleOrDefaultAsync(item => item.UserId == userId && item.Name == name, cancellationToken);
             if (foodItem is null)
             {
-                foodItem = new FoodItem { Name = name };
+                foodItem = new FoodItem { UserId = userId, Name = name };
                 dbContext.FoodItems.Add(foodItem);
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
@@ -214,7 +232,7 @@ public static class FoodItemEndpoints
             try
             {
                 var foodItem = await dbContext.FoodItems
-                    .SingleOrDefaultAsync(item => item.Name == name, cancellationToken);
+                    .SingleOrDefaultAsync(item => item.UserId == userId && item.Name == name, cancellationToken);
                 if (foodItem is not null)
                 {
                     return TypedResults.Ok(new FoodItemSearchResponse(

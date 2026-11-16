@@ -4,6 +4,8 @@ public sealed class FoodItemAlias
 {
     public ulong Id { get; set; }
 
+    public ulong UserId { get; set; }
+
     public ulong FoodItemId { get; set; }
 
     public string Alias { get; set; } = string.Empty;

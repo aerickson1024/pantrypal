@@ -7,15 +7,15 @@
       <img class="brand-logo" src="/pantrypal-logo.png" alt="" aria-hidden="true" />
       <h1>PantryPal</h1>
     </div>
-    <nav class="primary-nav" aria-label="Main navigation">
-      <button
-        type="button"
-        class="nav-link"
-        [class.nav-link--active]="activePage() === 'pantryItems'"
-        [attr.aria-current]="activePage() === 'pantryItems' ? 'page' : null"
-        (click)="showPage('pantryItems')"
-      >Pantry Items</button>
-      @if (apiKey.isValid()) {
+    @if (auth.isSignedIn()) {
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button
+          type="button"
+          class="nav-link"
+          [class.nav-link--active]="activePage() === 'pantryItems'"
+          [attr.aria-current]="activePage() === 'pantryItems' ? 'page' : null"
+          (click)="showPage('pantryItems')"
+        >Pantry Items</button>
         <button
           type="button"
           class="nav-link"
@@ -30,41 +30,155 @@
           [attr.aria-current]="activePage() === 'receiptUploads' ? 'page' : null"
           (click)="showPage('receiptUploads')"
         >Receipt Uploads</button>
-      }
-      <button
-        type="button"
-        class="nav-link"
-        [class.nav-link--active]="activePage() === 'apiKey'"
-        [attr.aria-current]="activePage() === 'apiKey' ? 'page' : null"
-        (click)="showPage('apiKey')"
-      >API Key</button>
-    </nav>
+        <button
+          type="button"
+          class="nav-link account-button"
+          [class.nav-link--active]="activePage() === 'account'"
+          [attr.aria-current]="activePage() === 'account' ? 'page' : null"
+          (click)="openAccount()"
+        >
+          <svg class="account-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5Z" fill="currentColor" />
+          </svg>
+          <span>{{ auth.profile()?.firstName || 'Account' }}</span>
+        </button>
+      </nav>
+    }
   </header>
 
-  @if (activePage() === 'apiKey') {
-    <section class="api-key-panel" aria-labelledby="api-key-heading">
-      <h2 id="api-key-heading">Gemini API key</h2>
-      <p>The key is stored in this browser only. The server checks it against saved key hashes.</p>
-      <label for="api-key-input">API key</label>
-      <div class="api-key-input-row">
-        <input
-          id="api-key-input"
-          name="apiKey"
-          type="password"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Paste your Gemini API key"
-          [value]="apiKey.key()"
-          (input)="updateApiKey($event)"
-        />
-        <button type="button" [disabled]="!apiKey.key()" (click)="apiKey.clear()">Clear</button>
+  @if (auth.status() === 'loading') {
+    <section class="auth-page" aria-busy="true">
+      <p class="empty-state" role="status">Loading your session...</p>
+    </section>
+  } @else if (!auth.isSignedIn()) {
+    <section class="welcome" aria-labelledby="welcome-heading">
+      <div class="welcome-intro">
+        <h2 id="welcome-heading">Keep track of what is in your pantry</h2>
+        <p>Upload grocery receipts, tag what you have on hand, and see what you spend. Sign in to get started, or create an account with an invite code.</p>
+        <ul class="welcome-features">
+          <li>Parse receipts into pantry items with Gemini</li>
+          <li>Tag items to see what you have and what needs restocking</li>
+          <li>Review spending over time</li>
+        </ul>
       </div>
-      <p
-        class="api-key-status"
-        role="status"
-        [class.api-key-status--valid]="apiKey.isValid()"
-        [class.api-key-status--invalid]="apiKey.status() === 'invalid' || apiKey.status() === 'error'"
-      >{{ apiKey.statusMessage() }}</p>
+
+      <form class="api-key-panel auth-panel" (submit)="submitAuth($event)">
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+          <button
+            type="button"
+            role="tab"
+            [attr.aria-selected]="authMode() === 'signIn'"
+            [class.nav-link--active]="authMode() === 'signIn'"
+            (click)="setAuthMode('signIn')"
+          >Sign in</button>
+          <button
+            type="button"
+            role="tab"
+            [attr.aria-selected]="authMode() === 'register'"
+            [class.nav-link--active]="authMode() === 'register'"
+            (click)="setAuthMode('register')"
+          >Create account</button>
+        </div>
+
+        @if (authMode() === 'register') {
+          <label for="auth-first-name">First name</label>
+          <div class="api-key-input-row">
+            <input id="auth-first-name" name="firstName" type="text" autocomplete="given-name" maxlength="100" [value]="authForm().firstName" (input)="updateAuthField('firstName', $event)" />
+          </div>
+          <label for="auth-last-name">Last name</label>
+          <div class="api-key-input-row">
+            <input id="auth-last-name" name="lastName" type="text" autocomplete="family-name" maxlength="100" [value]="authForm().lastName" (input)="updateAuthField('lastName', $event)" />
+          </div>
+          <label for="auth-invite">Invite code</label>
+          <div class="api-key-input-row">
+            <input id="auth-invite" name="inviteCode" type="text" autocomplete="off" spellcheck="false" maxlength="36" [value]="authForm().inviteCode" (input)="updateAuthField('inviteCode', $event)" />
+          </div>
+        }
+
+        <label for="auth-email">Email</label>
+        <div class="api-key-input-row">
+          <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="255" [value]="authForm().email" (input)="updateAuthField('email', $event)" />
+        </div>
+
+        <label for="auth-password">Password</label>
+        <div class="api-key-input-row">
+          <input
+            id="auth-password"
+            name="password"
+            type="password"
+            [attr.autocomplete]="authMode() === 'register' ? 'new-password' : 'current-password'"
+            minlength="8"
+            maxlength="128"
+            [value]="authForm().password"
+            (input)="updateAuthField('password', $event)"
+          />
+        </div>
+
+        <button type="submit" [disabled]="isAuthBusy()">
+          {{ isAuthBusy() ? 'Please wait...' : (authMode() === 'register' ? 'Create account' : 'Sign in') }}
+        </button>
+        @if (authError()) {
+          <p class="api-key-status api-key-status--invalid" role="alert">{{ authError() }}</p>
+        }
+      </form>
+    </section>
+  } @else if (activePage() === 'account') {
+    <section class="api-key-panel account-panel" aria-labelledby="account-heading">
+      <h2 id="account-heading">Account</h2>
+      <p>Signed in as {{ auth.profile()?.email }}</p>
+
+      <form class="account-form" (submit)="saveAccountName($event)">
+        <div class="account-name-row">
+          <div class="account-name-field">
+            <label for="account-first-name">First name</label>
+            <div class="api-key-input-row">
+              <input id="account-first-name" name="firstName" type="text" autocomplete="given-name" maxlength="100" [value]="accountFirstName()" (input)="updateAccountName('firstName', $event)" />
+            </div>
+          </div>
+          <div class="account-name-field">
+            <label for="account-last-name">Last name</label>
+            <div class="api-key-input-row">
+              <input id="account-last-name" name="lastName" type="text" autocomplete="family-name" maxlength="100" [value]="accountLastName()" (input)="updateAccountName('lastName', $event)" />
+            </div>
+          </div>
+        </div>
+        <div class="account-actions">
+          <button type="submit" [disabled]="isAccountBusy() || !accountFirstName().trim() || !accountLastName().trim()">Save name</button>
+        </div>
+      </form>
+
+      <form class="account-form" (submit)="saveGeminiApiKey($event)">
+        <label for="gemini-key-input">Gemini API key</label>
+        <p>{{ auth.profile()?.hasGeminiKey ? 'A key is saved. Paste a new key to replace it.' : 'No key is saved. Receipt parsing needs one.' }}</p>
+        <div class="api-key-input-row">
+          <input
+            id="gemini-key-input"
+            name="geminiApiKey"
+            [attr.type]="showGeminiKey() ? 'text' : 'password'"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Paste your Gemini API key"
+            [value]="geminiKeyDraft() || savedGeminiKey()"
+            (input)="updateGeminiKeyDraft($event)"
+          />
+          <button type="button" (click)="toggleGeminiKeyVisibility()">{{ showGeminiKey() ? 'Hide' : 'Show' }}</button>
+        </div>
+        <div class="account-actions">
+          <button type="submit" [disabled]="isAccountBusy() || !geminiKeyDraft().trim()">Save key</button>
+          <button type="button" [disabled]="isAccountBusy() || !auth.profile()?.hasGeminiKey" (click)="removeGeminiApiKey()">Remove key</button>
+        </div>
+      </form>
+
+      @if (accountMessage()) {
+        <p class="api-key-status api-key-status--valid" role="status">{{ accountMessage() }}</p>
+      }
+      @if (accountError()) {
+        <p class="api-key-status api-key-status--invalid" role="alert">{{ accountError() }}</p>
+      }
+
+      <div class="account-actions">
+        <button type="button" class="sign-out-button" (click)="signOut()">Sign out</button>
+      </div>
     </section>
   } @else if (activePage() === 'receiptUploads') {
     <form class="composer" (submit)="submitReceipt($event)">
@@ -692,15 +806,13 @@
                             @for (tag of item.tags; track tag) {
                               <span class="tag-chip">{{ tag }}</span>
                             }
-                            @if (apiKey.isValid()) {
-                              <button
-                                type="button"
-                                class="tag-add-button"
-                                title="Add tag"
-                                [attr.aria-label]="'Add tag to ' + item.itemName"
-                                (click)="startEditingTags(item)"
-                              ><span class="tag-add-icon" aria-hidden="true"></span></button>
-                            }
+                            <button
+                              type="button"
+                              class="tag-add-button"
+                              title="Add tag"
+                              [attr.aria-label]="'Add tag to ' + item.itemName"
+                              (click)="startEditingTags(item)"
+                            ><span class="tag-add-icon" aria-hidden="true"></span></button>
                           </div>
                         }
                         </td>

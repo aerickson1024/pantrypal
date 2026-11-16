@@ -8,11 +8,14 @@ namespace PantryPal.Api.Services;
 public sealed class PantrySummaryService(PantryPalDbContext dbContext) : IPantrySummaryService
 {
     public async Task<PantrySummaryResponse> GetSummaryAsync(
+        ulong userId,
         DateOnly? fromDate,
         DateOnly? toDate,
         CancellationToken cancellationToken)
     {
-        var purchases = dbContext.Purchases.AsNoTracking();
+        var purchases = dbContext.Purchases
+            .AsNoTracking()
+            .Where(purchase => purchase.UserId == userId);
         if (fromDate is { } startDate)
         {
             purchases = purchases.Where(purchase => purchase.PurchaseDate >= startDate);
